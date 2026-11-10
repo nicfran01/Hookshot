@@ -33,7 +33,30 @@ the next runtime task.
 - `readme.md`: a 14-line "raiders-recomp (fork)" section on top; nothing below it changed (`git diff --numstat`:
   14 added, 0 deleted).
 
+## Acceptance (T01, 2026-11-10, branch `task/T01-fork-setup`)
+
+All **verified** by running the commands on the Mac:
+
+| Check | Result |
+|---|---|
+| `git remote -v` | `origin` = `nicfran01/Hookshot` (fetch and push), `upstream` fetch = `NotRexed/Hookshot`, push `DISABLED` |
+| `git merge-base --is-ancestor upstream/main HEAD` | `history ok` |
+| `git check-ignore -v work refs .venv build-linux/` | all four ignored (`.gitignore` lines 3, 43, 44, 35) |
+| `git ls-files \| grep -Ec '^(work\|refs\|\.venv)/'` | `0` |
+| `git ls-files docs/plans CLAUDE.md spikes \| wc -l` | `43` |
+| `ls .github/workflows` | `linux-appimage.yml`, `release.yml.disabled`, `source-regressions.yml`, `vulkan-dlss.yml.disabled`, `windows-builder.yml` |
+| `head -20 readme.md` | the fork section, then upstream's README from its first line |
+| `tests/run_all.py recomplauncher_json appimage_package_retry appimage_player_build stick_dead_zone` | 4 passed, 0 failed, 0 skipped (the four checks that read the changed workflows and `readme.md`) |
+| byte-compile of `spikes/*.py` | 6 files, no error |
+
+The full game-free suite was not run here: T02 takes the Mac baseline.
+
 ## Deviations
+
+- **The task's ignore check could not run as written.** `git check-ignore -q work refs .venv build-linux`
+  fails with `fatal: --quiet is only valid with a single pathname` (**verified**). Checked one path at a time
+  instead; `build-linux` needs the trailing slash while the folder does not exist, since `build-linux/` matches
+  folders only (**verified**: ignored once created). The acceptance line in `T01-fork-setup.md` is corrected.
 
 - **`windows-builder.yml` is guarded, not renamed** (blocker `BLOCKER-T01-2026-11-10.md`, decided by the user).
   **verified:** `tests/test_recomplauncher_json.py:31` (`test_windows_zip_carries_it`) reads

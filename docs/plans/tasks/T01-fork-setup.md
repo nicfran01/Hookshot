@@ -73,7 +73,7 @@ Hookshot with upstream's history and paths (`docs/plans/03-architecture.md` §1,
 ```bash
 git remote -v                                   # origin = the fork, upstream fetch = NotRexed/Hookshot, push DISABLED
 git merge-base --is-ancestor upstream/main HEAD && echo "history ok"
-git check-ignore -q work refs .venv build-linux && echo "ignores ok"
+for p in work refs .venv build-linux/; do git check-ignore -q "$p" || echo "NOT ignored: $p"; done  # prints nothing
 git ls-files | grep -Ec '^(work|refs|\.venv)/'  # 0
 git ls-files docs/plans CLAUDE.md spikes | wc -l # > 30
 ls .github/workflows                            # source-regressions.yml, linux-appimage.yml, windows-builder.yml, two *.disabled
