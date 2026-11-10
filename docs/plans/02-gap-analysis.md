@@ -57,7 +57,9 @@ Summary:
   they must do nothing. → T06 routes them through `games/<id>/patches.py`.
 - **Semantic correctness on Raiders' code: untested.** Hookshot's differential tests need Unicorn:
   `nx2/test_insn.py` (every instruction form the game uses) and `nx2/test_leaf.py` (random whole functions)
-  **[verified: `docs/design.md` §7]**. → T06 runs both on the Mac against Raiders' image as acceptance.
+  **[verified: `docs/design.md` §7]**. → T08a, on the Deck. (Revised 2026-11-10: T02 found both harnesses
+  Windows only (`windows.h`, `VirtualAlloc`, SEH) and the Mac arm64, so neither runs on the Mac or, as written,
+  on Linux; `docs/plans/reports/mac-test-baseline.md`.)
 - **Emit size [inferred]:** Hookshot's game emitted 1.4 GB of C in 57 chunks for 294,450 functions; Raiders
   has 12% fewer functions, so about 1.2 GB.
 - **Hot list and PGO:** none exist for Raiders. Without them "the game builds but runs slower" (`readme.md`).

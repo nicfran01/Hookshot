@@ -63,8 +63,9 @@ const char hos_game_data_dir[] = "raiders-recomp";
    - This writes about 1.2 GB of lifted C to `work/sa/gen` on the Mac. It is game code: it stays there.
    - If discovery differs from the non-standalone numbers (258,115 functions), explain why (hooked functions
      are not lifted).
-5. If T02 found that `nx2/test_leaf.py` cannot build on the Mac, leave it for T08; otherwise run
-   `python -I nx2/test_leaf.py --count 1000 --states 4 --calls` now.
+5. Do not run `nx2/test_insn.py` or `nx2/test_leaf.py` here: T02 found both harnesses Windows only and the
+   Mac arm64 (`docs/plans/reports/mac-test-baseline.md`). T08a ports them to Linux and runs them on the Deck.
+   (Revised 2026-11-10.)
 
 ## Acceptance criteria
 ```bash

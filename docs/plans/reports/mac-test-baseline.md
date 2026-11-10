@@ -117,7 +117,8 @@ it there") does not hold:
 - Running them needs a POSIX path in both harnesses (`mmap` with `MAP_FIXED_NOREPLACE` in place of `VirtualAlloc`) plus
   an x86-64 host. That is new work for the plan: `insn_test.py` is under `third_party/`, which CONTRIBUTING.md says not
   to modify, so it would need a wrapper in `nx2/` or a change upstream. It is a candidate generic fix for T25.
-  Recommendation: revise T06 and T08 before they run.
+  Recommendation: revise T06 and T08 before they run. Done the same day: new task T08a
+  (`docs/plans/tasks/T08a-lifter-tests-linux.md`, change log in `05-roadmap.md`).
 
 ## Deviations
 

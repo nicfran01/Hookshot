@@ -28,6 +28,7 @@ without it. This task can be run more than once: after M1 for the dictionary fix
 | 6 | NVN2 procs added | `host/nvn_native.c` | Any NVN 21.4.x/22.x game |
 | 7 | Geometry-stage support | `gpu/vk/vk_shader.cpp`, Eden front end | Any game with geometry shaders |
 | 8 | Draw-time pipeline compile counter in the status line | `gpu/vk/vk_draw.cpp` | Diagnostics |
+| 9 | Linux path for the lifter's differential tests (T08a) | `nx2/test_leaf.py`, `nx2/test_insn.py` | Their harnesses use `windows.h`, `VirtualAlloc` and SEH, so the lifter cannot be checked on Linux. The vendored `third_party/a64-kit/tests/insn_test.py` is not edited; say in the PR that a fix there belongs to a64-kit |
 
 ## Scope
 For each candidate that still applies:

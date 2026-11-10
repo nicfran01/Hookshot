@@ -2,7 +2,7 @@
 
 Each milestone has one testable exit criterion. Tasks are sized for one Opus session each; a session that
 finds more than it can finish writes a blocker report (`06-handoff-guide.md`) instead of stretching.
-At a few hours a week, expect one or two tasks a week: 25 tasks is roughly four to six months, with wide
+At a few hours a week, expect one or two tasks a week: 26 tasks is roughly four to six months, with wide
 error bars on M4, M5 and M7 **[inferred]**.
 
 The original suggested M0 (reproduce a Hookshot build of its own game) is replaced by a toolchain-only M0,
@@ -22,6 +22,9 @@ flowchart LR
     T05 --> T08
     T06 --> T08
     T07 --> T08
+    T03 --> T08a[T08a lifter tests on Linux]
+    T06 --> T08a
+    T08a --> T13
     T08 --> T09[T09 trace report]
     T08 --> T12[T12 shader census on Deck]
     T09 --> T10[T10 offline stubs]
@@ -67,7 +70,7 @@ and memory are first measured in T13 and T17, not left to M7.
   `python -I nx2/shader_census.py <romfs> --out work/raiders_shaders.bin` reports 22,042 programs.
 
 ### M2 · Lift, link, reach `nnMain`
-- **Tasks:** T06, T07, T08.
+- **Tasks:** T06, T07, T08, T08a (T08a is not part of the exit; it must be done before T13).
 - **Exit:** on the Deck, `work/sa/build/hookshot` exists and a `HOS_TRACE=1` run logs the boot sequence
   through `nnMain` and reaches `nvnBootstrapLoader` (Hookshot's stage S2, `docs/design.md` §6), or stops at a
   named unimplemented call recorded in `docs/plans/reports/M2-boot.md`.
@@ -137,3 +140,10 @@ and memory are first measured in T13 and T17, not left to M7.
 ## Change log
 
 - 2026-11-10: first version.
+- 2026-11-10 (after T01): `windows-builder.yml` is guarded to upstream's repository instead of renamed, because
+  `tests/test_recomplauncher_json.py` reads it (`reports/BLOCKER-T01-2026-11-10.md`; T01 and `03-architecture.md`
+  §7 edited).
+- 2026-11-10 (after T02): new task **T08a**. `nx2/test_insn.py` and `nx2/test_leaf.py` have Windows-only harnesses
+  (`windows.h`, `VirtualAlloc`, SEH) and cannot run on the arm64 Mac, so T06 no longer runs them and T08 no longer
+  defers to the Deck. T08a adds a Linux path (no edit to `third_party/`) and runs them on the Deck before T13.
+  Also T25 candidate 9 and `02-gap-analysis.md` §2 (`reports/mac-test-baseline.md`).

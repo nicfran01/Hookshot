@@ -37,7 +37,9 @@ was last tuned for SDK 22.2.8 on top of a base written for SDK 21.4.0.
    - Pitfall: `build.py` looks for FFmpeg and SDL2 through `EMSDK`, `RX_CPM`, `HOOKSHOT_FFMPEG`,
      `HOOKSHOT_SDL2` (`builder/linux/AppRun` shows the full set the AppImage exports). Mirror those in
      `build.sh`, pointing into `~/raiders/deps`.
-2. If T02 deferred it: `python -I nx2/test_leaf.py --count 1000 --states 4 --calls` on the Deck.
+2. The lifter's differential tests are T08a's, not this task's: as written their harnesses are Windows only
+   (T02). If T08a is done, read its report before step 4: a failing form or function it lists may explain a
+   boot stop. (Revised 2026-11-10.)
 3. First run: `scripts/deck/run.sh boot1 60 -- HOS_TRACE=1 HOS_NO_MOVIES=1` (headless, muted). Fetch the log.
 4. Walk the log from the top. For each stop:
    - an unimplemented SVC or `svcGetInfo` id → `host/hos_svc.c`;

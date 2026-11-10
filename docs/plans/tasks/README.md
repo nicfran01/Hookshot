@@ -13,6 +13,7 @@ One file per implementation task, each sized for one Opus session. Order and dep
 | [T06](T06-lift-gating.md) | M2 | Mac | Game-neutral lift driver; first standalone lift of Raiders |
 | [T07](T07-host-gating.md) | M2 | Mac | Gate Ocarina-specific runtime and renderer code |
 | [T08](T08-first-build-and-boot.md) | M2 | Deck | First build; boot to `nnMain` |
+| [T08a](T08a-lifter-tests-linux.md) | M2 | Mac + Deck | Linux path for the lifter's differential tests; run them on Raiders (added after T02) |
 | [T09](T09-trace-report.md) | M3 | Deck | Trace harness; report of every stub and NVN proc called |
 | [T10](T10-offline-stubs.md) | M3 | Deck | Offline answers: network, ldn, nfp, friends, swkbd |
 | [T11](T11-nvn2-gaps.md) | M3 | Deck | NVN2 procs the game needs |
