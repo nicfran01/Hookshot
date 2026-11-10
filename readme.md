@@ -1,3 +1,17 @@
+## raiders-recomp (fork)
+
+This is **raiders-recomp**, an unofficial fork of Hookshot that works towards a static recompilation of
+*Splatoon Raiders* (Nintendo Switch 2) to a native x86-64 Linux program for the Steam Deck, built from the
+player's own legally made dump. It is not affiliated with or endorsed by Nintendo or by Hookshot's authors, and
+it contains no game data: no code, assets, shaders or keys from the game, nor anything made from them.
+It plays offline only. The plan and the task list are in [docs/plans/00-overview.md](docs/plans/00-overview.md);
+the upstream base of each sync is recorded in [docs/plans/reports/upstream-sync.md](docs/plans/reports/upstream-sync.md).
+Licence: GPL-3.0-or-later, like upstream.
+
+*Everything below is upstream Hookshot's README.*
+
+---
+
 <h1 align="center">
   <br>
   <a>
