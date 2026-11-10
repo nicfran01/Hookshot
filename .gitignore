@@ -37,3 +37,9 @@ build-linux/
 
 # ---- NVIDIA's DLSS SDK (scripts/ngx_sdk.py): NVIDIA's files, never committed ----
 ngx-sdk/
+
+# ---- raiders-recomp ----
+# (from the planning .gitignore: every line upstream's file lacks; nothing from the game is ever committed)
+refs/
+.venv/
+.DS_Store
