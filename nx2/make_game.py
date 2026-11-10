@@ -45,10 +45,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 PY = [sys.executable, "-I", "-u", "-X", "utf8"]   # (utf8: every step's output in UTF-8 whatever the console's code page: lift.py crashed on a letter, #180)   # (-u: the steps' output as it comes, not in 8 KB blocks minutes apart)
 BUILD_ID = "e0f3ccfa"   # (the version the patches, the hot list and the profile were made from)
+# (raiders) BUILD_ID and LANGUAGES stay Ocarina's (the builders import them); the version check and the language list
+# go through the selected game: nx2/game.py, games/<id>/game.py
 STARTED = time.time()   # (the build's total time, kept in build_times.json and said as @@times)
 sys.path[:0] = [HERE, os.path.join(ROOT, "third_party", "a64-kit", "tools")]   # (python -I leaves the script folder off)
 import toolchain as _toolchain
 import disk as _disk
+import game as _game  # (raiders)
 # (hookshot) RX_TARGET=windows on Linux: the Windows game, with llvm-mingw's Linux release (HOOKSHOT_MINGW, or llvm-mingw
 # beside the builder), to run under Proton or copy to a Windows PC
 LINUX, CROSS = not _toolchain.windows(), _toolchain.windows() and os.name != "nt"
@@ -353,10 +356,19 @@ def check_modules(exefs):
                      "Hookshot developers." % (name, head.hex()))
 
 
+def select_game(exefs):
+    """(raiders) The game this exefs is (nx2/game.py), or an @@error naming the ones supported"""
+    try:
+        return _game.select(exefs)
+    except SystemExit as e:
+        fail(str(e))
+
+
 def check_supported_build(exefs):
     bid = build_id(os.path.join(exefs, "main"))
-    if not bid.startswith(BUILD_ID):
-        fail("This is build %s. Hookshot supports build %s." % (bid[:8], BUILD_ID))
+    ok, text = _game.check_build(select_game(exefs), bid)   # (raiders)
+    if not ok:
+        fail(text)
 
 
 def file_progress(verb, clock=time.monotonic):
@@ -482,13 +494,13 @@ def check(a, work):
         run(PY + ["nx2/nup.py", a.nup, "--extract", probe, "--only", "exefs"])
         check_modules(os.path.join(probe, "exefs"))
         bid = build_id(os.path.join(probe, "exefs", "main"))
+        cfg = select_game(os.path.join(probe, "exefs"))   # (raiders)
         shutil.rmtree(probe, ignore_errors=True)
     else:
         bid = build_id(os.path.join(a.exefs, "main"))
-    if bid.startswith(BUILD_ID):
-        say("check", "ok", "This is the version Hookshot supports (build %s)." % bid[:8])
-    else:
-        say("check", "bad", "This is build %s. Hookshot supports build %s." % (bid[:8], BUILD_ID))
+        cfg = select_game(a.exefs)   # (raiders)
+    ok, text = _game.check_build(cfg, bid)   # (raiders) the same sentences, with the game's TITLE
+    say("check", "ok" if ok else "bad", text)
 
 
 def visual_studio_environment():
@@ -1077,7 +1089,8 @@ def folder_language(out):
         with open(os.path.join(out, "language.txt"), encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if line and not line.startswith("#") and any(line == code for code, _ in LANGUAGES):
+                # (raiders) a code of any game's list: the folder's own game wrote it
+                if line and not line.startswith("#") and any(line == code for g in _game.all_ids() for code, _ in _game.by_id(g).LANGUAGES):
                     return line
     except OSError:
         pass
@@ -1702,7 +1715,7 @@ def main(a=None):
     language = os.path.join(out, "language.txt")   # (the same text as host/nn_applet.c writes)
     with open(language, "w", encoding="utf-8", newline="\n") as f:
         f.write("# The game's language. Change the line below to one of the codes listed here, save, and start the game again.\n\n%s\n\n" % a.language)
-        f.writelines("# %-8s %s\n" % l for l in LANGUAGES)
+        f.writelines("# %-8s %s\n" % l for l in select_game(exefs).LANGUAGES)   # (raiders) the game's own list
     # (what the game's update offer reads, host/hos_update.c: which release these tools are, and where the builder that made the folder is)
     tag = ""
     for version_name in ("version.txt", "VERSION"):   # (VERSION: the AppImage, which has no version.txt)
