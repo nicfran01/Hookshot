@@ -31,10 +31,16 @@ if [ "${1:-}" = --inside ]; then
             out=$OOT_WORK/sa/build/hookshot_vk.so ;;
         lift)
             export OOT_WORK=$R/work OOT_DUMP=$R/dump HOOKSHOT_KEEP_BUILD_FILES=1
+            # (work/image too, as make_game.py makes it before its lift: the standalone lift saves its chunk boundaries there,
+            # nx2/chunks.py save, and stopped with FileNotFoundError in a new work folder)
+            mkdir -p "$OOT_WORK/image"
+            # (each step under /usr/bin/time -v: its wall time and peak memory at the end of its output, for the M2 report;
+            # set -o pipefail: a failed step stops the build, and the tee'd log keeps what it said)
+            timed() { /usr/bin/time -v "$@"; }
             {
-                "$PY" -I nx2/make_game.py --check --exefs "$OOT_DUMP/exefs"
-                "$PY" -I -u nx2/lift.py --standalone --write
-                "$PY" -I nx2/build.py --standalone --jobs "$JOBS"
+                timed "$PY" -I nx2/make_game.py --check --exefs "$OOT_DUMP/exefs" &&
+                timed "$PY" -I -u nx2/lift.py --standalone --write &&
+                timed "$PY" -I nx2/build.py --standalone --jobs "$JOBS"
             } 2>&1 | tee "$OOT_WORK/build.log"
             out=$OOT_WORK/sa/build/hookshot ;;
         full)
