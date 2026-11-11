@@ -198,3 +198,134 @@ Estimate: 2-3 more sessions after the blocker is resolved (**inferred**).
 
 **Final check by you at the Deck:** done for the screens reached, with the differences above. **Gate 1 is not passed**:
 there was no title screen, and problems 3-5 are open.
+
+---
+
+# Session 2 (2026-11-11, after the `nn::ngc` fix)
+
+**Short answer: Gate 1 is still not passed, for two reasons.**
+
+- **The crash is gone, and the save now works.** Play runs go past character customization. A boot from the save the
+  game writes after its first scene resumes that scene (problem 1, now answered).
+- **There is still no title screen.** That boot shows the same ~12 s of cloud images, then the scene, without any
+  input. Whether the console shows something over those clouds, a logo for example, is **unknown**: that is the
+  question for you.
+- **A new stop: a GPU hang** in one draw program, `cffdbb02c4dfbd39`, right after the loading screen that follows that
+  scene. It reproduced 3 times out of 3. Leaving that program out (diagnosis only) avoids it, and the game then reaches
+  its first playable area. Its cause is **unknown**; its fragment stage is traced as far as one bounded loop (below).
+
+## Branches
+
+- **Merged into `main` by your choice:**
+  - `91a5336`: `task/T10-ngc-offline`, the `nn::ngc` answer (`T10-offline.md`, "Part B, second iteration");
+  - `1a8f381`: `task/T13-first-frame`, session 1.
+- `task/T13-first-frame` was then fast-forwarded to `main`.
+- `BLOCKER-T13-2026-11-11.md` is marked resolved.
+
+## Runs (Deck, headless, handheld)
+
+The input scripts press A every 2 s (they go through dialogue and confirmations) and start at the menu:
+`20:A,24:RIGHT,26:A` on a first-start save.
+
+| Run | Save at boot | Switches | What happened |
+|---|---|---|---|
+| `ngc1` (T10) | first-start | A to 418 s, 460 s limit | Customization passed, then the hub scene and its dialogue, then a loading screen. **A ring timeout at 12:27:11**, at the time limit, so the log has no device-lost line |
+| `play1` | first-start | A to 598 s, `HOS_INPUT_LIVE` | The same path. The save was written at 12:40:14 (after "Start!") and **again at 12:42:09**, after that loading screen. **Device lost** 13 s later (12:42:22), at present ~3,830. Exit 3, peak RSS 6,078,092 kB |
+| `play2` | `play1`'s | as `play1`, plus `RX_VK_CHECKPOINTS=1` | The same stop at the same frame (3,747). The buffer markers name the program (below). Save written at 12:45:27. Peak RSS 6,107,568 kB |
+| `title4` | `play2`'s | no input, 180 s, as the acceptance run | **No title.** Presents 120-840 are the cloud images (5 draws, 5 dispatches, 3 passes a frame, 60 fps), then the hub scene and its first dialogue line, waiting for A |
+| `play3` | `play2`'s | A to 398 s, `RX_VK_SKIP_PROG=cffdbb02c4dfbd39` | **No hang** in 420 s. Through the loading screen into the **first playable area**, which waits at a tutorial prompt to aim by moving the controller (T15's ground). Save written at 12:52:56 |
+| `play4` | `play2`'s (restored) | `RX_VK_NO_PROGRAM_CACHE=1`, `RX_VK_IR=cffdbb02c4dfbd39`, the same skip | No hang in 330 s. The program's IR was written (below) |
+
+- Saves were copied before each change (`~/raiders/work/t13s2_save_before/`, `t13s2_save_now/`, `t13s2_save_after_play2/`).
+- `play3`'s later save (12:52:56) was overwritten by the restore before `play4`, with no copy kept.
+- In every run of this session:
+  - **no "dropped stages"** (still nothing for T14);
+  - no program left untranslated and no lowering failure;
+  - no device loss except the hang.
+
+## Problem 1, updated: the save and the title
+
+- **The save is honoured** once the game has saved after its first scene (`play1`'s second write).
+  - Verified: `title4` boots into that scene, not "Select a difficulty".
+  - So session 1's "the next boot asks for a difficulty again" was the game's own behaviour: its first save, at "Start!",
+    keeps no progress.
+  - **No T16 work is needed for this.**
+- **No title screen in any boot so far:** first-start, after "Start!", or after the first scene.
+  - The only screen before play is the cloud background: 3 passes and 5 draws a frame, so it is not a full menu layout.
+    It is shown for ~12 s and needs no button.
+  - Two possibilities, **unknown** which:
+    - the game has no title screen at that point, so Gate 1's "title screen" is the cloud screen;
+    - the clouds should carry a logo or text that is not drawn (compare problem 3, the missing button labels).
+  - The console settles it.
+
+## Problem 7 (new): GPU hang in program `cffdbb02c4dfbd39`
+
+**Evidence (verified):**
+- **Kernel:** `ring gfx_0.0.0 timeout` with `Process hookshot … thread ModuleSystemWor` at 12:27:11 (`ngc1`), 12:42:22
+  (`play1`) and 12:45:39 (`play2`). Then `Ring gfx_0.0.0 reset succeeded`. There is no GPU page fault in this boot's
+  kernel log.
+- **`play2`'s buffer markers** (`RX_VK_CHECKPOINTS=1`, `VK_AMD_buffer_marker`):
+  - `2535556 markers set, 63965 reached; the last whose earlier work all finished: 2534082`;
+  - `reached, earlier work unfinished: marker 2533980 (draw of program cffdbb02c4dfbd39, frame 3747)`.
+
+  That draw started and never finished, while 102 later markers did.
+- **The program:** `its code: 0:02ff83a48c3b8aee 1:6d6b06b5cd3001e9`, a vertex and a fragment stage. It is not a task or
+  mesh program, so not upstream's culling-loop hang (`RX_VK_MESH_NOCULL`). Neither stage is among T12's left-out programs.
+- **With it left out** (`play3`, `play4`): no hang.
+
+**The fragment stage** (`RX_VK_IR`, 10,410 lines of Eden IR, kept in `work/t13_ir/`; game-derived, not committed):
+- **One loop:** header `Block $98`, back edge from `Block $196`. The vertex stage has none.
+- **The counter** starts at 0 and steps by 1. The loop runs again while `i + 1 < n` (signed).
+- **The bound:** `n = SMin32(LoadStorage32 #0[…], GetCbufU32 #4, #2832)`. That is a count read from storage buffer 0,
+  capped by a word of constant buffer 4.
+  - Storage buffer 0's address comes from constant buffer 0 word 1296, and storage buffer 1's from word 1312.
+  - The index is built from the fragment's position, as in a tiled light or decal list (**inferred**).
+- **The body** reads storage buffer 1 and samples textures. There is no nested loop.
+- So, as written, the loop is bounded by the game's own cap. A hang needs one of these (**inferred**, not yet told apart):
+  1. both the count and the cap read wrong values: a wrong constant buffer 4, or a wrong storage binding or address;
+  2. an out-of-range read that does not fault on RADV but returns huge values;
+  3. a translation fault in the loop's structure, its exit branch for example. The IR above is Eden's view, before
+     SPIR-V and RADV's compiler.
+
+**Next steps:**
+- Read the loop's inputs on the GPU at that draw: constant buffer 4 word 2832, and the storage word at the first pixel.
+  Then check the binding sizes for storage buffers 0 and 1 against the game's addresses.
+- If the inputs are sane, dump the SPIR-V (`RX_VK_DUMP_SPV`) and check the loop's exit in it.
+- A program-key skip is not a fix: what the program draws is **unknown**. So this stays a diagnosis switch, not a game
+  default.
+
+## Render facts added
+
+| Where | fps (headless) | A frame | Replay time a frame |
+|---|---|---|---|
+| Hub scene (after customization) | 21-23 | ~1,000 draws, 80 passes, 8 dispatches | submit 35 ms, of which **descriptors 26 ms** (`play1`) |
+| First playable area (`play3`, program left out) | 33-35 | ~1,478 draws, 102 passes, 17 dispatches | submit 25.7 ms, descriptors 17.4 ms |
+
+- **Not GPU-bound:** the GPU-bound wait is 0.2-0.3 ms.
+- **The replay's descriptor work** is the largest single cost in 3D scenes (**verified** from the `replay time` lines).
+  That is for T22.
+- **Memory:** peak RSS of 6.08-6.11 GB over a run to the hub scene. The game was reaped after the device loss, so the
+  figure is real.
+
+## Open visual differences, added
+
+- The first playable area has red and yellow ink shapes over the screen edges. With the health bar at half, they are
+  probably the game's own damage effect (**inferred**; not checked against the console).
+
+## What remains for Gate 1
+
+1. **Your answer:** what the console shows between power-on and the first scene, a title or logo over the clouds or
+   not.
+2. **Problem 7**, the hang: one more session (**inferred**).
+3. **Problems 3-5**, the visual differences: unchanged since session 1.
+4. **Your windowed check again.**
+
+## Acceptance criteria (session 2)
+
+| Command | Result |
+|---|---|
+| `run.sh title4 180 -- HOS_NO_MOVIES=1 HOS_HANDHELD=1 RX_VK_SHOT_EVERY=300` (the acceptance run with a progress save) | Stopped at the time limit with 15 screenshots. **The last one shows the hub scene's first dialogue line, not a title. Not met** (problem 1) |
+| `grep -ci "device lost" work/runs/title4/hookshot_log.txt` | `0`. **Met.** (`play1`/`play2`: 1 and 2, problem 7) |
+| `journalctl -k -b \| grep -cE "gfx_\|amdgpu.*timeout"` | **Not 0:** 4 ring timeouts in this session (problem 7), on top of session 1's 4 set-up lines |
+| `grep -n "dropped stages"` | empty in every run |
+| `.venv/bin/python -I -B tests/run_all.py` | **Not re-run on the merge.** Each side gave 326 passed, 9 failed, 9 skipped (the baseline's 9; with the header paths): `task/T10-ngc-offline` (`T10-offline.md`) and session 1's branch. The merge had no conflicts, and this session changed no code or tests |
