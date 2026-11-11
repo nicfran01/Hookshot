@@ -2,6 +2,7 @@
 // romfs/Font2/Scalable/<name>.Nin_Ounce_NVN2.bfotf.zs is zstd with the dictionary zs.zsdic, kept in the SARC archive
 // romfs/Pack/ZsDic.pack.zs (zstd, no dictionary). The .bfotf in it is an OpenType font behind an 8-byte header, XOR-ed with a
 // 4-byte key: the first little-endian word is 0x18029a7f XOR the key, the second the font's size (big-endian) XOR the key.
+// (raiders) A game with no Pack/ZsDic.pack.zs has plain zstd frames: read without a dictionary then (Reader::plain).
 // A font without Latin letters is not used (the menu would draw boxes): Libertinus is, then. No Vulkan or ImGui here:
 // tests/test_game_font.py checks it on files of its own making.
 #pragma once
@@ -9,7 +10,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>   // (raiders) Reader::open: whether Font2/Scalable is there
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "zstd.h"
@@ -104,6 +107,7 @@ inline std::vector<unsigned char> bfotf_font(const std::vector<unsigned char>& r
 struct Reader {
     std::string romfs;
     ZSTD_DDict* dict = nullptr;
+    bool plain = false;   // (raiders) no dictionary pack in the game: the fonts are plain zstd frames
     Reader() = default;
     Reader(const Reader&) = delete;
     Reader& operator=(const Reader&) = delete;
@@ -115,6 +119,11 @@ struct Reader {
         if (dir.back() != '/' && dir.back() != '\\') dir += '/';
         romfs = dir;
         std::vector<unsigned char> packed, pack, zsdic;
+        // ((raiders) no dictionary pack at all: plain zstd, when the folder has the fonts' folder; a pack that does not read
+        // still fails, as before)
+        std::error_code ec;
+        if (!std::filesystem::exists(romfs + "Pack/ZsDic.pack.zs", ec))
+            return plain = std::filesystem::is_directory(romfs + "Font2/Scalable", ec);
         if (read_file(romfs + "Pack/ZsDic.pack.zs", packed) && unzstd(packed, nullptr, pack) && sarc_file(pack, "zs.zsdic", zsdic))
             dict = ZSTD_createDDict(zsdic.data(), zsdic.size());
         return dict != nullptr;
@@ -122,7 +131,8 @@ struct Reader {
     /// A font by name ("ClarimoUDPE-Regular"); empty when the files do not have it, or it has no Latin letters
     std::vector<unsigned char> read(const char* name) const {
         std::vector<unsigned char> packed, raw;
-        if (!dict || !read_file(romfs + "Font2/Scalable/" + name + ".Nin_Ounce_NVN2.bfotf.zs", packed) || !unzstd(packed, dict, raw))
+        if ((!dict && !plain) || !read_file(romfs + "Font2/Scalable/" + name + ".Nin_Ounce_NVN2.bfotf.zs", packed) ||
+            !unzstd(packed, dict, raw))   // ((raiders) plain: dict is null, a frame without a dictionary)
             return {};
         std::vector<unsigned char> font = bfotf_font(raw);
         if (!font.empty() && !has_latin(font)) font.clear();

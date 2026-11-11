@@ -52,6 +52,7 @@ sys.path[:0] = [HERE, os.path.join(ROOT, "third_party", "a64-kit", "tools")]   #
 import toolchain as _toolchain
 import disk as _disk
 import game as _game  # (raiders)
+import romfs_check as _romfs_check  # (raiders)
 # (hookshot) RX_TARGET=windows on Linux: the Windows game, with llvm-mingw's Linux release (HOOKSHOT_MINGW, or llvm-mingw
 # beside the builder), to run under Proton or copy to a Windows PC
 LINUX, CROSS = not _toolchain.windows(), _toolchain.windows() and os.name != "nt"
@@ -369,6 +370,16 @@ def check_supported_build(exefs):
     ok, text = _game.check_build(select_game(exefs), bid)   # (raiders)
     if not ok:
         fail(text)
+
+
+def check_romfs(exefs, romfs):
+    """(raiders) The romfs against the game's file and byte floors (nx2/romfs_check.py): a folder copied short stops here, not as
+    a crash much later. A game without floors (upstream's) is not checked"""
+    ok, text = _romfs_check.check(select_game(exefs), romfs)
+    if not ok:
+        fail(text)
+    if text.startswith("files "):
+        print("romfs: " + text, flush=True)
 
 
 def file_progress(verb, clock=time.monotonic):
@@ -1516,6 +1527,7 @@ def main(a=None):
         shutil.rmtree(kept, ignore_errors=True)
         shutil.copytree(exefs, kept)
     check_supported_build(exefs)
+    check_romfs(exefs, romfs)   # (raiders) before the lift: a romfs copied short is said now
 
     # (made once on the development PC: lists of addresses and counts, no game code)
     for name in ("hot_funcs.txt", "hot_order.txt", "hookshot_pieces.prof", "hookshot.res"):

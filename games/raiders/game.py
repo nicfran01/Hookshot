@@ -14,9 +14,9 @@ LANGUAGES = [("ja", "Japanese"), ("en-US", "English (US)"), ("es-419", "Spanish 
              ("fr-CA", "French (Canada)"), ("en-GB", "English (UK)"), ("es", "Spanish (Spain)"),
              ("fr", "French (France)"), ("de", "German"), ("it", "Italian"), ("nl", "Dutch"),
              ("ko", "Korean"), ("zh-Hans", "Chinese (Simplified)"), ("zh-Hant", "Chinese (Traditional)")]
-ROMFS_MIN_FILES = 46_000             # (T05: the base game has 46,340, one stray *.part ignored)
-ROMFS_MIN_BYTES = 13_600_000_000     # (T05: 12.69 GiB)
-ZS_DICTIONARY = None                 # (T05: no Pack/ZsDic.pack.zs)
+ROMFS_MIN_FILES = 46_000             # (T05: the base game has 46,338, not counting *.part and dotfiles: nx2/romfs_check.py)
+ROMFS_MIN_BYTES = 13_559_000_000     # (T05: it has 13,627,981,317 bytes, 12.69 GiB: this is 0.5% below)
+ZS_DICTIONARY = None                 # (T05: no Pack/ZsDic.pack.zs. A record: the three readers look for the file)
 DATA_DIR = "raiders-recomp"          # (T16: ~/.local/share/raiders-recomp)
 EXE = "hookshot"                     # (upstream's name until M8, T24)
 LIFT_PATCHES = "games.raiders.patches"   # (T06: install(L, img); empty until one is needed; not written yet)
