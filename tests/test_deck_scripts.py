@@ -78,6 +78,13 @@ class DeckScriptTests(unittest.TestCase):
             args = [l for l in (root / "work/runs/t2/hookshot_log.txt").read_text().splitlines() if l.startswith("arg ")]
             self.assertEqual(len(args), 5, args)
 
+    def test_the_window_finds_the_wayland_desktop(self):   # (raiders, T13: a windowed run started over SSH)
+        run = (DECK / "run.sh").read_text(encoding="utf-8")
+        window = run[run.index('if [ "$window" = 1 ]; then\n    export DISPLAY'):]
+        window = window[:window.index("\nfi\n") + 4]
+        self.assertIn('[ -S "$XDG_RUNTIME_DIR/wayland-0" ]; then export WAYLAND_DISPLAY=wayland-0; fi', window)
+        self.assertIn('[ -z "${WAYLAND_DISPLAY:-}" ]', window)   # (one the caller set wins)
+
     def test_the_scripts_parse(self):
         bash = shutil.which("bash")
         if not bash:
