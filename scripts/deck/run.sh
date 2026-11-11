@@ -37,7 +37,7 @@ set -euo pipefail
 R=$1 name=$2 secs=$3 sound=$4 window=$5; shift 5
 if [ -x "$R/work/sa/build/hookshot" ]; then
     exe=$R/work/sa/build/hookshot
-    args=("$R/work/image/image.bin" --romfs "$R/dump/romfs")
+    args=("$R/work/sa/image/image.bin" --romfs "$R/dump/romfs")   # (the standalone lift's image: make_game.py ships the same)
 elif [ -x "$HOME/Games/raiders/bin/hookshot" ]; then
     exe=$HOME/Games/raiders/bin/hookshot
     args=()
