@@ -32,3 +32,21 @@ HLE(_ZN2nn5prepo27AddInternetConnectionStatusEPNS0_10PlayReportEPKcS4_S4_) { RET
 /* Result RequestImmediateTransmission(): asks the service to send the saved reports now. Nothing is saved or sent:
    success. */
 HLE(_ZN2nn5prepo28RequestImmediateTransmissionEv) { RET(0); }
+
+/* ---- nn::ngc: the profanity filter has no system service to ask, so it finds no words ------------------------------
+   Of the 7 nn::ngc functions the game imports, only Initialize reaches a service: the SDK's own (sdk 0x854adbb0) asks
+   sm: for the ngc service through ngc::detail::CreateServiceByHipc, which aborts when sm: has no such service. The
+   constructor, SkipAtSignCheck and CountNumbers only touch the object or the string, and Finalize, the destructor and
+   MaskProfanityWordsInText do nothing but return when the object's "initialized" byte (+9) is 0: they stay the SDK's
+   own code (docs/plans/reports/T10-offline.md, "Part B, second iteration"). */
+
+/* Result ProfanityFilter::Initialize(void* work, size_t size): the SDK's result for "no ngc service" (0xd092, its own
+   answer when the shared service object stays null), with the object left as the constructor made it (+9 still 0, no
+   heap in the work buffer). The game ignores the result (main 0x82b7fb64); its Mask calls then get the SDK's
+   "not initialized" answer with the text unchanged and the count the caller zeroed beforehand (0x82b7fec4,
+   0x82b80424), so no name is treated as profane. */
+HLE(_ZN2nn3ngc15ProfanityFilter10InitializeEPvm) {
+    static volatile LONG said;
+    if (!InterlockedExchange(&said, 1)) hos_log("ngc: profanity filter offline (no ngc service): Initialize answers 0xd092");
+    RET(0xd092);
+}

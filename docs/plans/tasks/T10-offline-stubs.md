@@ -91,7 +91,8 @@ Steps for Part B:
 
 | Namespace of a wrong or blocking stub | Owner |
 |---|---|
-| `nn::ldn`, `nn::nfp`, `nn::friends`, `nn::swkbd`, `nn::nifm`, `nn::socket`, `nnsocket*`, `nn::ssl`, `nn::account` (network), `nn::prepo`, `nn::err` | T10 Part B |
+| `nn::ldn`, `nn::nfp`, `nn::friends`, `nn::swkbd`, `nn::nifm`, `nn::socket`, `nnsocket*`, `nn::ssl`, `nn::account` (network), `nn::prepo`, `nn::err`, `nn::ngc` (profanity filter; added after BLOCKER-T13-2026-11-11) | T10 Part B |
+| The guest SDK's own code asking `sm:` for a service the runtime does not have (an abort under `nn::sm`/`CreateServiceByHipc` in the backtrace; `scripts/trace_report.py` cannot list these) | the owner of the SDK namespace that asked, by this table |
 | `nn::pl` fonts | T09a |
 | `nn::hid` | T15 |
 | `nn::audio`, audio `nn::codec` | T18 |
