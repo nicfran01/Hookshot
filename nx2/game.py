@@ -5,6 +5,9 @@
                                   upstream's game (oot, as before there was a choice). An unknown id stops with SystemExit.
     check_build(cfg, build_id)    (ok, the sentence the version check says)
     by_id(id), all_ids()          a game's config; every game's id
+    patches(cfg)                  the game's lift-time patches (its LIFT_PATCHES, games/<id>/patches.py): install(L, img),
+                                  supported(meta, standalone), edit_c(gen, stats, supported, whole); hooks that do nothing
+                                  when it has none
     program_id(exefs)             main.npdm's program id, None without one
 
 Standard library only (make_game.py and the game-free tests import it): the npdm reader is nx2/npdm.py, not dump.py.
@@ -43,6 +46,40 @@ def by_id(game_id):
         spec.loader.exec_module(cfg)
         _loaded[game_id] = cfg
     return _loaded[game_id]
+
+
+class _NoPatches:
+    """A game with LIFT_PATCHES None: the hooks, doing nothing"""
+    @staticmethod
+    def install(L, img):
+        pass
+
+    @staticmethod
+    def supported(meta, standalone):
+        return False
+
+    @staticmethod
+    def edit_c(gen, stats, supported, whole):
+        pass
+
+
+def patches(cfg):
+    """cfg.LIFT_PATCHES ("games.<id>.patches", a module under the repository) loaded by path, once; the do-nothing hooks for None"""
+    name = getattr(cfg, "LIFT_PATCHES", None)
+    if not name:
+        return _NoPatches
+    if name not in _loaded:
+        parts = name.split(".")
+        if parts[0] != "games" or not all(p.isidentifier() for p in parts):
+            raise SystemExit("LIFT_PATCHES %r is not a module under games/" % name)
+        path = os.path.join(os.path.dirname(GAMES), *parts) + ".py"
+        if not os.path.isfile(path):
+            raise SystemExit("LIFT_PATCHES %r: no %s" % (name, path))
+        spec = importlib.util.spec_from_file_location("_".join(parts), path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _loaded[name] = mod
+    return _loaded[name]
 
 
 def program_id(exefs):

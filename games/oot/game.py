@@ -20,7 +20,7 @@ ROMFS_MIN_BYTES = None
 ZS_DICTIONARY = "Pack/ZsDic.pack.zs"   # (T05: a record: the three readers look for this path themselves)
 DATA_DIR = "hookshot"                  # (T16: ~/.local/share/hookshot, host/hos_main.c)
 EXE = "hookshot"
-LIFT_PATCHES = "games.oot.patches"     # (T06: wraps nx2/oot_wide, oot_jitter, oot_occlusion, oot_patches; not written yet)
+LIFT_PATCHES = "games.oot.patches"     # (T06: wraps nx2/oot_wide, oot_jitter, oot_occlusion, oot_patches)
 # (T07: RX_VK_SKIP_PROG's default, gpu/vk/vk_draw.cpp: left out while its targets have no view)
 SKIP_PROGRAMS = ("53509044401d78d2",)
 # (T07: (fog, exposure) of gpu/vk/vk_shader.cpp oot_visual(), applied only with RX_VK_OOT_VISUAL=1)

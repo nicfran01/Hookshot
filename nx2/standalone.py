@@ -163,9 +163,16 @@ def thread_hooks(img, meta):
     return [0, 0]
 
 
-def write_image_c(gen, img, meta, exefs):
+def c_string(s):
+    """(raiders) s as a C string literal"""
+    return '"%s"' % "".join(c if c.isascii() and c.isprintable() and c not in '\\"' else "\\%03o" % b
+                            for c in s for b in c.encode())
+
+
+def write_image_c(gen, img, meta, exefs, game=None):
     """Boot constants for hos_main.c: the image span, each module's DT_INIT in rtld's order (rtld itself is not run:
-    the image is already relocated), the entry points, and the main thread's stack, priority and core (main.npdm)"""
+    the image is already relocated), the entry points, and the main thread's stack, priority and core (main.npdm).
+    (raiders) And the game's identity (games/<id>/game.py: ID, TITLE, DATA_DIR; game: its config, else nx2/game.py select)"""
     ex = meta["exports"]
     mods = [m for m in meta["modules"] if m["init"] and m["name"] != "rtld"]
     npdm = open(os.path.join(exefs, "main.npdm"), "rb").read()
@@ -188,6 +195,12 @@ def write_image_c(gen, img, meta, exefs):
              "const uint64_t hos_entry_nnMain = %#xULL;" % ex.get("nnMain", 0),
              "const uint64_t hos_program_id = %#xULL;   /* (main.npdm's ACI0) */" % program_id,
              'const char hos_main_build_id[] = "%s";' % main_build]
+    if game is None:   # (raiders)
+        import game as _game
+        game = _game.select(exefs)
+    lines += ["const char hos_game_id[] = %s;   /* (raiders) games/<id>/game.py */" % c_string(game.ID),
+              "const char hos_game_title[] = %s;" % c_string(game.TITLE),
+              "const char hos_game_data_dir[] = %s;" % c_string(game.DATA_DIR)]
     for sym in ("_init_libc0", "_init_libc1", "_init_libc2", "nnosInitialize", "nninitInitializeSdkModule",
                 "nvnBootstrapLoaderInternal"):
         lines.append("const uint64_t hos_entry_%s = %#xULL;" % (sym.lstrip("_"), ex.get(sym, 0)))
