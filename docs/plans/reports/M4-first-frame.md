@@ -329,3 +329,68 @@ The input scripts press A every 2 s (they go through dialogue and confirmations)
 | `journalctl -k -b \| grep -cE "gfx_\|amdgpu.*timeout"` | **Not 0:** 4 ring timeouts in this session (problem 7), on top of session 1's 4 set-up lines |
 | `grep -n "dropped stages"` | empty in every run |
 | `.venv/bin/python -I -B tests/run_all.py` | **Not re-run on the merge.** Each side gave 326 passed, 9 failed, 9 skipped (the baseline's 9; with the header paths): `task/T10-ngc-offline` (`T10-offline.md`) and session 1's branch. The merge had no conflicts, and this session changed no code or tests |
+
+---
+
+# Session 3 (2026-11-11): where the title screen is
+
+**Your information (from the console):** with a save from someone who has played, the boot plays the intro cutscene
+again and then shows the real title screen. It has:
+- the logo at the top left;
+- "press ZL+ZR" at the right;
+- the version number at the top right;
+- "Nintendo" at the bottom left.
+
+**Short answer:** the title is not reachable from the saves made so far.
+- Every save made in these runs is a **prologue** save.
+- A boot from any of them goes clouds → the scene after customization. Played on from there, the game leads back into
+  the tutorial and writes its prologue save again.
+- So reaching the title needs a save from after the prologue (**inferred** from your report and these runs). That means
+  playing the prologue to its end, which needs:
+  - the hang avoided (problem 7);
+  - input for the tutorial's aiming and swimming (T15's ground, done by hand here).
+
+## Runs
+
+| Run | Save at boot | Switches | What happened |
+|---|---|---|---|
+| `title5` | `play4`'s (prologue, 4,907 B) | **movies on**, `HOS_VIDEO_LOG=1`, no input, 240 s | The same as `title4`: clouds for presents 120-840, then the scene's first dialogue line. **No movie call at all** (no `movie`/`video` log line): the clouds and the intro are not movie files, and `HOS_NO_MOVIES` changes nothing here |
+| `live1` | the same | `RX_VK_SKIP_PROG=cffdbb02c4dfbd39`, `HOS_INPUT_LIVE`, steered by hand (screenshots every 60 presents, presses written to the live file) | Through the scene, the island cutscene and the first tutorial steps. The steps: line up the reticle on a shard (the right stick turns the camera, so it works without motion), collect shards, turn into a squid with ZL, swim through ink. **Save written at 13:42:11, 5,073 B.** No hang, no device loss; stopped by hand at present ~17,000 (about 9.5 min) |
+| `title6` | `live1`'s (5,073 B) | movies on, no input, 240 s | **Clouds, then the same scene**, waiting on its first line. No title |
+| `title7` | the same | A every 2 s from 25 s, the skip | Through the scene, then **back into the tutorial's start** (the beach, the first dialogue). The save was **rewritten to 4,907 B at 13:53:14**, the prologue save again |
+
+- `live1`'s save is kept in `~/raiders/work/t13s3_save_tutorial/` and was put back after `title7`.
+- No run of this session had a device loss or "dropped stages".
+
+## New facts
+
+- **The input path works for the first tutorial steps** with the right stick, the left stick, ZL and A (`live1`). Those
+  are the scripted pad and live input, not the Deck's own controls. Holding ZL while moving did not always keep squid
+  form; the cause is **unknown**, so it is noted for T15.
+- **The red and yellow shapes at the screen edges** are the game's low-health effect (**verified** in `live1`): they
+  go when health refills to 100 in the squid form, and come back as it falls.
+- **The flat-box UI glitch is common in play** (problem 4, the "yellow boxes" you saw), and seen headless:
+  - `vk_007980`: a **solid yellow square** in place of the shard counter's icon;
+  - `vk_008940`: a flat teal box beside the counter;
+  - `vk_011040`: flat grey and white bars over the health bar, and a translucent box behind a tutorial prompt line;
+  - `vk_011340`: dark bars over the health bar.
+
+  They appear when HUD elements change (a counter updating, a prompt appearing). This is the same class as the missing
+  button labels (problem 3): UI layout drawing (**inferred**). The frame numbers above are `live1`'s screenshots, in
+  `work/runs/live1/shots/`.
+
+## What remains for Gate 1, updated
+
+1. **A save from after the prologue.** One of:
+   - **You play the prologue to its end in a windowed run** on the Deck, with the hang's program left out:
+
+     ```
+     scripts/deck/run.sh <name> 3600 --window --sound -- HOS_HANDHELD=1 HOS_WINDOW_SIZE=1280x720 RX_VK_SKIP_PROG=cffdbb02c4dfbd39
+     ```
+
+     Then boot again and check the title against the console. This is the shortest path. Its cost: whatever the
+     program draws is missing while you play (**unknown** what that is).
+   - **Fix problem 7 first, then play.** The same, without the switch.
+2. **Problem 7**, the hang: one session (**inferred**).
+3. **Problems 3-5**, the UI box and label class and the 3D artifacts: the UI class now has headless frames to start
+   from.
