@@ -1197,7 +1197,8 @@ def lift_key(exefs, work, env):
     h.update(" ".join(sorted(standalone.implemented())).encode())
     # (each file named from its own base: the exefs and the work folder may be on another drive than the source, which relpath refuses)
     files = [(exefs, os.path.join(exefs, f)) for f in sorted(os.listdir(exefs))]
-    for top in (HERE, os.path.join(ROOT, "third_party", "a64-kit")):
+    # ((raiders) games/: the game's config and lift-time patches, which the lift reads)
+    for top in (HERE, os.path.join(ROOT, "third_party", "a64-kit"), os.path.join(ROOT, "games")):
         for d, dirs, fs in os.walk(top):
             dirs[:] = sorted(x for x in dirs if x != "__pycache__")
             files += [(ROOT, os.path.join(d, f)) for f in sorted(fs) if f.endswith((".py", ".c", ".h", ".cpp", ".hpp", ".txt", ".json"))]

@@ -32,6 +32,7 @@ import lift_fixes
 import chunks
 import standalone
 import adr_entries  # noqa: E402
+import game as _game  # (raiders) the game's lift-time patches (games/<id>/patches.py)
 import nso
 import poll
 import nx_image
@@ -131,6 +132,9 @@ def main():
     a = p.parse_args()
     a.exefs = a.exefs or kit.need_exefs()
     t0 = time.time()
+    cfg = _game.select(a.exefs)   # (raiders)
+    patches = _game.patches(cfg)
+    print("game: %s (%s)" % (cfg.ID, cfg.LIFT_PATCHES or "no lift patches"))
     hle = ()
     if a.standalone:
         hle, stubbed = standalone.hle_set(nso.load_exefs(a.exefs))
@@ -158,13 +162,8 @@ def main():
         print("ADR / ADRP+ADD code addresses outside the %d unwind-covered functions: %d, %d of them new entries" % (
             len(spans), len(refs), len(new)))
     L = a64_lift.Lifter(img)
-    if a.standalone:   # (hookshot) widescreen and ultrawide: C after a few of the game's instructions
-        import oot_wide
-        oot_wide.install(L, img)
-        import oot_jitter   # (the temporal upscalers' camera jitter, DLSS's and FSR 3.1's: none unless one runs, host/rx_backend.c)
-        oot_jitter.install(L, img)
-        import oot_occlusion   # (no occlusion queries when HOOKSHOT_OCCLUSION_OFF=1: Fritchii's Occlusion Off)
-        oot_occlusion.install(L, img)
+    if a.standalone:   # (raiders) the game's C after some of its instructions (Ocarina's: widescreen, camera jitter, occlusion off)
+        patches.install(L, img)
     L.discover(max_insns=a.max_func)
     print("discovered %d functions (%.0fs)" % (len(L.funcs), time.time() - t0))
     total = coverage(L, img, img_dir)
@@ -183,12 +182,11 @@ def main():
         gen = os.path.join(out_dir, "gen")
         files = chunks.write(L, gen, os.path.join(a.work, "image"), a.rechunk and not a.standalone,
                              counters=[] if a.no_polls else [poll.stats])
-        import oot_patches
-        main_build = next((m["build_id"] for m in meta["modules"] if m["name"] == "main"), "")
-        chunks.edit_c(gen, L.stats, a.standalone and main_build == oot_patches.LIFE_BUILD_ID, whole=not a.max_func)
+        # ((raiders) the game's edits, gated as its patches say: Ocarina's on the standalone lift of its build)
+        chunks.edit_c(gen, L.stats, patches.supported(meta, a.standalone), whole=not a.max_func, patches=patches)
         a64_rtgen.write(gen)
         if a.standalone:
-            start, exit_ = standalone.write_image_c(gen, img, meta, a.exefs)
+            start, exit_ = standalone.write_image_c(gen, img, meta, a.exefs, game=cfg)
             print("standalone: hos_image.c (thread hooks %#x, %#x), %d import stubs" % (
                 start, exit_, standalone.gen_stubs(gen, meta)))
             nvn = standalone.nvn_exports(nso.load_exefs(a.exefs))
