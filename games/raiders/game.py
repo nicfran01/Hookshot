@@ -23,3 +23,7 @@ LIFT_PATCHES = "games.raiders.patches"   # (T06: its hooks do nothing until a pa
 SKIP_PROGRAMS = ()                   # (T07: no default RX_VK_SKIP_PROG for this game)
 VISUAL_WORKAROUNDS = None            # (T07: off)
 PERF_FILES = ("hot_funcs.txt", "hot_order.txt", "raiders_pieces.prof")   # (T22: looked for in work/, all optional)
+# (T11) nvnDeviceGetInteger answers where this game's NVN driver (sdk 21.4.4, sdk+0x659410, run under Unicorn with a zeroed
+# device) differs from host/nvn_native.c devinfo[] (Mario Kart World's 21.4.0 driver). Ids it reads from device state, and the
+# API minor version (deliberately 40 upstream), are not overrides: docs/plans/reports/T11-nvn2.md
+NVN_DEVICE_INFO = {0x31: 0}          # GLSLC_MIN_SUPPORTED_GPU_CODE_MINOR_VERSION: 0 (the shared table: 5)

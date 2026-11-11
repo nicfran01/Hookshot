@@ -169,6 +169,17 @@ def c_string(s):
                             for c in s for b in c.encode())
 
 
+def nvn_device_info_c(game):
+    """(raiders, T11) The game's nvnDeviceGetInteger overrides (games/<id>/game.py NVN_DEVICE_INFO: {id: value}) as the C table
+    host/nvn_native.c reads: {id, value} pairs in id order, ending at id -1. No field: just the end."""
+    info = getattr(game, "NVN_DEVICE_INFO", None) or {}
+    for k, v in info.items():
+        if not (isinstance(k, int) and 0 <= k < 0x100 and isinstance(v, int) and -2**31 <= v < 2**31):
+            sys.exit("%s: NVN_DEVICE_INFO: %r: %r is not an id 0..0xFF and a 32-bit value" % (game.ID, k, v))
+    pairs = "".join("{%#x, %d}, " % (k, v) for k, v in sorted(info.items()))
+    return "const int hos_game_nvn_devinfo[][2] = {%s{-1, 0}};   /* (raiders) games/<id>/game.py NVN_DEVICE_INFO */" % pairs
+
+
 def write_image_c(gen, img, meta, exefs, game=None):
     """Boot constants for hos_main.c: the image span, each module's DT_INIT in rtld's order (rtld itself is not run:
     the image is already relocated), the entry points, and the main thread's stack, priority and core (main.npdm).
@@ -200,7 +211,8 @@ def write_image_c(gen, img, meta, exefs, game=None):
         game = _game.select(exefs)
     lines += ["const char hos_game_id[] = %s;   /* (raiders) games/<id>/game.py */" % c_string(game.ID),
               "const char hos_game_title[] = %s;" % c_string(game.TITLE),
-              "const char hos_game_data_dir[] = %s;" % c_string(game.DATA_DIR)]
+              "const char hos_game_data_dir[] = %s;" % c_string(game.DATA_DIR),
+              nvn_device_info_c(game)]
     for sym in ("_init_libc0", "_init_libc1", "_init_libc2", "nnosInitialize", "nninitInitializeSdkModule",
                 "nvnBootstrapLoaderInternal"):
         lines.append("const uint64_t hos_entry_%s = %#xULL;" % (sym.lstrip("_"), ex.get(sym, 0)))
