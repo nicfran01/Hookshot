@@ -5,6 +5,8 @@ Differences from running the vendored test as is:
   - the Switch 2 forms translate (insn.install()), and RETAx are returns (not sampled, like RET);
   - Unicorn runs its "max" CPU model, which has the ARMv8.1+ forms (the default Cortex-A72 rejects LSE, CAS, LDAPR);
   - the harness is built with -mcx16 (CASP on 128 bits);
+  - (raiders) off Windows the harness's Windows lines become POSIX ones (posix_harness): the vendored test is Windows only
+    as written, and third_party/ is not modified;
   - PAC and MTE forms are left out: here they are the identity by design (see insn.py), not the hardware's result;
   - memory operands based on x29 / x30 get their scratch address too: capstone names them fp / lr, which
     insn_test.mem_regs does not parse, so those cases ran on a random (often tiny) address that the harness
@@ -15,6 +17,7 @@ Usage:  python -I nx2/test_insn.py [--modules main,sdk,...] [--per 6] [--states 
   Needs the module images of nso.py in <work>/modules (made on first use).
 """
 import os
+import re
 import subprocess
 import sys
 
@@ -74,6 +77,54 @@ def mem_regs(w):
     return None
 
 
+# (raiders) the vendored harness's Windows lines (insn_test.build_harness) and their POSIX equivalents: the guest memory
+# mapped at A64_MEM (0x1000_0000_0000, a64.h) with mmap in place of VirtualAlloc, the same return code when it is not there
+WIN_INCLUDE = "#include <windows.h>"
+POSIX_INCLUDE = ("#include <string.h>\n#include <sys/mman.h>\n#ifndef MAP_FIXED_NOREPLACE\n"
+                 "#define MAP_FIXED_NOREPLACE 0x100000   /* (Linux 4.17; glibc names it from 2.28) */\n#endif")
+WIN_ALLOC = re.compile(r"if \(VirtualAlloc\(A64_MEM, (\d+), MEM_RESERVE \| MEM_COMMIT, PAGE_READWRITE\) != A64_MEM\) return 3;")
+POSIX_ALLOC = ("if (mmap(A64_MEM, \\1, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) "
+               "!= (void *)A64_MEM) return 3;")
+
+
+def posix_harness(text):
+    """(raiders) The harness's text with its Windows lines made POSIX. Stops when either is not there exactly once: an
+    upstream change to the harness must not leave this doing nothing"""
+    if text.count(WIN_INCLUDE) != 1 or len(WIN_ALLOC.findall(text)) != 1:
+        raise SystemExit("test_insn: insn_test's harness no longer has the one %r and the one VirtualAlloc line this "
+                         "rewrites for POSIX (nx2/test_insn.py posix_harness)" % WIN_INCLUDE)
+    text = text.replace(WIN_INCLUDE, POSIX_INCLUDE)
+    text = WIN_ALLOC.sub(POSIX_ALLOC, text)
+    if "windows.h" in text or "VirtualAlloc" in text:
+        raise SystemExit("test_insn: the POSIX harness still has Windows text")
+    return text
+
+
+def posix_build_harness(base):
+    """(raiders) insn_test.build_harness, its harness.c made POSIX after it is written and before clang reads it"""
+    def build_harness(tmp, picked):
+        real = insn_test.subprocess
+
+        class Compile:   # (only the compile in build_harness goes through here; main runs the harness with the real one)
+            def __getattr__(self, name):
+                return getattr(real, name)
+
+            @staticmethod
+            def run(cmd, *a, **k):
+                path = os.path.join(tmp, "harness.c")
+                with open(path, encoding="utf-8") as f:
+                    text = posix_harness(f.read())
+                with open(path, "w", newline="\n", encoding="utf-8") as f:
+                    f.write(text)
+                return real.run(cmd, *a, **k)
+        insn_test.subprocess = Compile()
+        try:
+            return base(tmp, picked)
+        finally:
+            insn_test.subprocess = real
+    return build_harness
+
+
 def main():
     kit.wait_for_quiet('the instruction test')
     only = None
@@ -98,6 +149,8 @@ def main():
         return [(k, w) for k, w in picked if only(w)] if only else picked
 
     insn_test.sample = sample
+    if os.name != "nt":   # (raiders)
+        insn_test.build_harness = posix_build_harness(insn_test.build_harness)
     sys.argv = [sys.argv[0], modules] + sys.argv[1:]
     return insn_test.main()
 
