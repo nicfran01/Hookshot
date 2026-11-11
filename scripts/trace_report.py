@@ -237,7 +237,7 @@ ANNOTATED = ("Class", "Owner", "Note")
 
 def render(traces, stubbed=None, dm=None):
     """The generated block, as lines"""
-    syms = sorted({s for t in traces for s in t.stubs}, key=lambda s: min(t.stubs[s][0] for t in traces if s in t.stubs))
+    syms = sorted({s for t in traces for s in t.stubs}, key=lambda s: (min(t.stubs[s][0] for t in traces if s in t.stubs), s))   # (raiders, T10: ties by name, so two logs give one order)
     dm = dm if dm is not None else demangle(syms)
     out = [BEGIN, ""]
     out.append("Logs: " + ", ".join("`%s` (%d lines)" % (t.label, t.lines) for t in traces) + ".")
@@ -265,7 +265,7 @@ def render(traces, stubbed=None, dm=None):
 
     out += ["", "### 2. NVN procs called without an implementation", ""]
     procs = sorted({p for t in traces for p in t.missing},
-                   key=lambda p: min(t.missing[p][0] for t in traces if p in t.missing))
+                   key=lambda p: (min(t.missing[p][0] for t in traces if p in t.missing), p))
     rows = []
     for k, p in enumerate(procs, 1):
         first = next(t.missing[p] for t in traces if p in t.missing)
