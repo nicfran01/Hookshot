@@ -145,6 +145,14 @@ class TraceReportTests(unittest.TestCase):
         self.assertNotIn("Some/Game", md)
         self.assertNotIn("Some Text", md)
 
+    def test_rows_in_one_order_for_two_logs(self):
+        # (two logs whose stubs tie on first-call order: the rows come out in one order, whatever the hash seed)
+        one = tr.parse(["[a64] unimplemented import _ZN2nn1b1fEv (lr 0x1)\n"], "one")
+        two = tr.parse(["[a64] unimplemented import _ZN2nn1a1fEv (lr 0x2)\n"], "two")
+        rows = [l for l in tr.render([one, two], dm={}) if l.startswith("| 1 |") or l.startswith("| 2 |")]
+        self.assertIn("`_ZN2nn1a1fEv`", rows[0])
+        self.assertIn("`_ZN2nn1b1fEv`", rows[1])
+
     def test_merge_keeps_text_and_annotations(self):
         block = tr.render([self.t], dm={})
         first = tr.merge("", block)

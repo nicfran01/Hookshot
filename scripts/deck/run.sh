@@ -2,25 +2,29 @@
 # (raiders) A named, time-limited run of the game on the Deck (the host, not the container: the game carries its own
 # SDL2 and needs glibc 2.35 or newer). Headless and muted unless asked; no network update check.
 #
-#     scripts/deck/run.sh <name> [seconds=120] [--sound] [--window] [-- NAME=VALUE ...]
+#     scripts/deck/run.sh <name> [seconds=120] [--sound] [--window] [--net-check] [-- NAME=VALUE ...]
 #
 # Writes $DECK_ROOT/work/runs/<name>/: env.txt (the switches, read through HOS_ENV_FILE), hookshot_log.txt (what the
 # game printed), shots/ (RX_VK_SHOTS), and game_log.txt when the game wrote its own log beside itself. Runs the
 # standalone build ($DECK_ROOT/work/sa/build/hookshot) when there is one, else the game folder ~/Games/raiders.
 # scripts/deck/fetch.sh <name> brings the folder back to the Mac's work/runs/<name>/ (game output: never committed).
+# --net-check (T10): every 5 s while the game runs, its sockets (ss, the game process and its children) go to net.txt:
+# a TCP or UDP socket with a peer that is not loopback is a FAIL line; Unix-domain sockets (Wayland, PipeWire, D-Bus,
+# SDL) are listed as "unix" and are expected. The last line counts the samples and failures.
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 
-usage() { echo "usage: scripts/deck/run.sh <name> [seconds] [--sound] [--window] [-- NAME=VALUE ...]" >&2; exit 2; }
+usage() { echo "usage: scripts/deck/run.sh <name> [seconds] [--sound] [--window] [--net-check] [-- NAME=VALUE ...]" >&2; exit 2; }
 [ $# -ge 1 ] || usage
 name=$1; shift
 [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "run: a run name is letters, digits, . _ -" >&2; exit 2; }
-secs=120 sound=0 window=0 env=()
+secs=120 sound=0 window=0 netcheck=0 env=()
 if [ $# -ge 1 ] && [[ $1 =~ ^[0-9]+$ ]]; then secs=$1; shift; fi
 while [ $# -gt 0 ]; do
     case $1 in
         --sound) sound=1 ;;
         --window) window=1 ;;
+        --net-check) netcheck=1 ;;
         --) shift; env=("$@"); break ;;
         *) usage ;;
     esac
@@ -32,9 +36,9 @@ done
 
 need_deck
 R=$(deck_root)
-deck "bash -s -- $(quote "$R" "$name" "$secs" "$sound" "$window" ${env[@]+"${env[@]}"})" <<'EOS'
+deck "bash -s -- $(quote "$R" "$name" "$secs" "$sound" "$window" "$netcheck" ${env[@]+"${env[@]}"})" <<'EOS'
 set -euo pipefail
-R=$1 name=$2 secs=$3 sound=$4 window=$5; shift 5
+R=$1 name=$2 secs=$3 sound=$4 window=$5 netcheck=$6; shift 6
 if [ -x "$R/work/sa/build/hookshot" ]; then
     exe=$R/work/sa/build/hookshot
     args=("$R/work/sa/image/image.bin" --romfs "$R/dump/romfs")   # (the standalone lift's image: make_game.py ships the same)
@@ -63,7 +67,35 @@ marker=$run/.started && touch "$marker"
 echo "run $name: $exe for ${secs}s"
 set +e
 (cd "$(dirname "$exe")" && HOS_ENV_FILE=$run/env.txt timeout --kill-after=15 "$secs" "$exe" ${args[@]+"${args[@]}"} \
-    --user "$HOME/.local/share/raiders-recomp") > "$run/hookshot_log.txt" 2>&1 < /dev/null
+    --user "$HOME/.local/share/raiders-recomp") > "$run/hookshot_log.txt" 2>&1 < /dev/null &
+game=$!
+if [ "$netcheck" = 1 ]; then   # (T10) the game's sockets every 5 s, classified by NET_AWK
+    # net-check classifier BEGIN (tests/test_deck_scripts.py runs it on sample lines of `ss -tuxanpH`)
+    NET_AWK='
+    {
+        netid = $1
+        if (netid ~ /^(u_|unix)/) { print "t=" t "s unix " netid " " $2 " " $5; next }
+        peer = $6; host = peer
+        sub(/:[^:]*$/, "", host); gsub(/[][]/, "", host); sub(/%.*$/, "", host)
+        if (host == "*" || host == "0.0.0.0" || host == "::" || host == "::1" || host ~ /^127\./ || host ~ /^::ffff:127\./)
+            v = "ok"
+        else
+            v = "FAIL"
+        print "t=" t "s " v " " netid " " $2 " " $5 " " peer
+    }'
+    # net-check classifier END
+    tree() { echo "$1"; local k; for k in $(pgrep -P "$1"); do tree "$k"; done; }
+    net=$run/net.txt samples=0 start=$(date +%s)
+    : > "$net"
+    while kill -0 "$game" 2>/dev/null; do
+        pids=$(tree "$game" | paste -sd'|' -)
+        ss -tuxanpH 2>/dev/null | grep -E "pid=($pids)," | awk -v t=$(( $(date +%s) - start )) "$NET_AWK" >> "$net"
+        samples=$((samples + 1))
+        sleep 5
+    done
+    echo "# net-check: $samples samples every 5 s, $(grep -c ' FAIL ' "$net") failures" >> "$net"
+fi
+wait "$game"
 code=$?
 set -e
 own=$(dirname "$exe")/hookshot_log.txt
@@ -74,4 +106,5 @@ case $code in
     *) echo "run $name: exited with $code" ;;
 esac
 echo "run $name: $(ls "$run/shots" | wc -l) screenshots, log $run/hookshot_log.txt"
+if [ "$netcheck" = 1 ]; then tail -1 "$run/net.txt"; fi
 EOS
