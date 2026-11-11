@@ -60,9 +60,14 @@ STATIC = {0xE049: "dpad", 0xE064: "dpad_vertical_outline", 0xE065: "dpad_horizon
 
 
 def zs_dictionary(romfs):
-    """zs.zsdic, out of Pack/ZsDic.pack.zs (a SARC, itself zstd without a dictionary)"""
+    """zs.zsdic, out of Pack/ZsDic.pack.zs (a SARC, itself zstd without a dictionary). None when the game has no such file: its
+    .zs files are plain zstd (read_zs)"""
     import zstandard
-    with open(os.path.join(romfs, "Pack", "ZsDic.pack.zs"), "rb") as f:
+    path = os.path.join(romfs, "Pack", "ZsDic.pack.zs")
+    if not os.path.isfile(path):   # (raiders) a game without the dictionary pack
+        print("prompts: no Pack/ZsDic.pack.zs: plain zstd only", file=sys.stderr)
+        return None
+    with open(path, "rb") as f:
         b = zstandard.ZstdDecompressor().decompressobj().decompress(f.read())
     data, = struct.unpack_from("<I", b, 12)
     hl, = struct.unpack_from("<H", b, 4)
@@ -78,7 +83,9 @@ def zs_dictionary(romfs):
 
 def read_zs(romfs, rel, dictionary):
     import zstandard
-    d = zstandard.ZstdDecompressor(dict_data=zstandard.ZstdCompressionDict(dictionary))
+    # ((raiders) no dictionary (zs_dictionary None): plain zstd frames)
+    d = zstandard.ZstdDecompressor(dict_data=zstandard.ZstdCompressionDict(dictionary)) if dictionary is not None else \
+        zstandard.ZstdDecompressor()
     with open(os.path.join(romfs, rel), "rb") as f:
         return d.decompressobj().decompress(f.read())
 
@@ -902,6 +909,9 @@ def main():
     ap.add_argument("--dump", help="also write every face's images as PNG into <dir>/<face>/ (the names nx2/prompt_faces/<face>/ "
                     "takes in their place), and the game's textures they go into into <dir>/game/")
     a = ap.parse_args()
+    if not os.path.isfile(os.path.join(a.romfs, FONT)):   # (raiders) a game without this icon font: nothing to redraw
+        print(f"prompts: nothing to do: the game files have no {FONT} (the game shows its own icons)", file=sys.stderr)
+        return 0
     dictionary = zs_dictionary(a.romfs)
     game_font = read_zs(a.romfs, FONT, dictionary)
     key, otf = unwrap(game_font)

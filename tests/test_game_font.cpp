@@ -2,6 +2,7 @@
 // the dictionary in a zstd frame, a font XOR-ed behind its 8-byte header in another. No game file is read. The good case
 // gives the font's bytes back; a truncated frame, a name offset past the archive, a name that only starts like the one asked
 // for, a wrong size word, a wrong font tag and a font with no Latin letters (argv[3]: only a Hebrew letter) give nothing.
+// (raiders) A folder with no dictionary pack reads plain frames, when it has Font2/Scalable.
 #include "../gpu/vk/vk_game_font.h"
 
 #include <cstdio>
@@ -159,6 +160,24 @@ int main(int argc, char** argv) {
     }
     CHECK("too short for a header", bfotf_font(Bytes(10, 0)).empty());
     CHECK("the header alone", bfotf_font(bfotf(Bytes(), key)).empty());
+    // ---- (raiders) no Pack/ZsDic.pack.zs: the fonts are plain zstd frames; no fonts' folder either: nothing to open ----
+    {
+        write(root / "plain" / (std::string(scalable) + "Test.Nin_Ounce_NVN2.bfotf.zs"), zframe(bfotf(font, key)));
+        Reader r;
+        CHECK("no dictionary pack: opens", r.open((root / "plain").string()));
+        CHECK("no dictionary pack: the font back", r.read("Test") == font);
+        CHECK("no dictionary pack: a font it does not have", r.read("Other").empty());
+    }
+    {
+        write(root / "plain-hebrew" / (std::string(scalable) + "Test.Nin_Ounce_NVN2.bfotf.zs"), zframe(bfotf(hebrew, key)));
+        Reader r;
+        CHECK("no dictionary pack, no Latin letters: not used", r.open((root / "plain-hebrew").string()) && r.read("Test").empty());
+    }
+    {
+        write(root / "plain-nofonts" / "Pack/Other.pack.zs", zframe(Bytes(16, 1)));
+        Reader r;
+        CHECK("no dictionary pack and no Font2/Scalable", !r.open((root / "plain-nofonts").string()) && r.read("Test").empty());
+    }
     {
         Reader r;
         CHECK("no folder", !r.open("") && r.read("Test").empty());

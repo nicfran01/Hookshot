@@ -17,7 +17,7 @@ LANGUAGES = [("en-US", "English (US)"), ("en-GB", "English (UK)"), ("fr", "Frenc
 # (T05: the romfs floors. Upstream checks the .nup's unpack its own way and has no floor: None)
 ROMFS_MIN_FILES = None
 ROMFS_MIN_BYTES = None
-ZS_DICTIONARY = "Pack/ZsDic.pack.zs"   # (T05: nx2/shader_census.py dictionaries() reads it)
+ZS_DICTIONARY = "Pack/ZsDic.pack.zs"   # (T05: a record: the three readers look for this path themselves)
 DATA_DIR = "hookshot"                  # (T16: ~/.local/share/hookshot, host/hos_main.c)
 EXE = "hookshot"
 LIFT_PATCHES = "games.oot.patches"     # (T06: wraps nx2/oot_wide, oot_jitter, oot_occlusion, oot_patches; not written yet)
