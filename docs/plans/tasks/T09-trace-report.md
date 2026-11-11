@@ -58,5 +58,6 @@ git diff --stat                                     # only scripts/, tests/, doc
 
 ## Report
 `docs/plans/reports/M3-trace.md` (generated, then annotated by hand): every called stub and missing NVN proc
-with a class (safe / wrong answer / blocking) and the owning task (T10 for OS, T11 for NVN); the queue and
+with a class (safe / wrong answer / blocking) and the owning task (by namespace, from the "Ownership of
+traced calls" table in `T10-offline-stubs.md`; revised 2026-11-10: not every OS stub is T10's); the queue and
 event summary; read-back candidates. Names and counts only.

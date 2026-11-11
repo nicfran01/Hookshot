@@ -15,8 +15,9 @@ One file per implementation task, each sized for one Opus session. Order and dep
 | [T08](T08-first-build-and-boot.md) | M2 | Deck | First build; boot to `nnMain` |
 | [T08a](T08a-lifter-tests-linux.md) | M2 | Mac + Deck | Linux path for the lifter's differential tests; run them on Raiders (added after T02) |
 | [T09](T09-trace-report.md) | M3 | Deck | Trace harness; report of every stub and NVN proc called |
-| [T10](T10-offline-stubs.md) | M3 | Deck | Offline answers: network, ldn, nfp, friends, swkbd |
-| [T11](T11-nvn2-gaps.md) | M3 | Deck | NVN2 procs the game needs |
+| [T09a](T09a-builtin-font-stand-in.md) | M3 | Deck | Built-in font stand-in: the call every run stops at |
+| [T10](T10-offline-stubs.md) | M3 | Deck | Offline guard now; offline answers when a trace shows the calls |
+| [T11](T11-nvn2-gaps.md) | M3 | Deck | Device-limits check now; NVN2 procs when a trace shows them missing |
 | [T12](T12-shader-census-on-deck.md) | M3 | Deck | Translate every shader on RADV; pass rate |
 | [T13](T13-first-frame.md) | M4 | Deck | First frame and title screen (Gate 1) |
 | [T14](T14-geometry-stage.md) | M4/M5 | Deck | Geometry-stage support (conditional) |

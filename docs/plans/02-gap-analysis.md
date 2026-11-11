@@ -11,7 +11,7 @@ Summary:
 |---|---|---|---|---|
 | 1 | Ingestion and version checks | GENERALISE | small | T04, T05 |
 | 2 | Lifter | UNCHANGED core, GENERALISE driver | small | T06 |
-| 3 | Host OS services | GENERALISE + NEW stubs | medium | T07, T09, T10 |
+| 3 | Host OS services | GENERALISE + NEW stubs | medium | T07, T09, T09a, T10 |
 | 4 | Threading and sync | UNCHANGED, tune for 4 cores | small | T08, T22 |
 | 5 | NVN2 record/replay | UNCHANGED core, NEW procs as traced | medium, unknown tail | T09, T11, T13 |
 | 6 | Shader lowering and translation | UNCHANGED core, NEW geometry stage (conditional) | unknown until T12 | T12, T14 |
@@ -84,7 +84,8 @@ namespace and the plan for each:
 | `nn::hid` | 13 | `InitializeJcms/GetJcmsStates` (Joy-Con 2 mouse), `GetMouseStates`, `InitializeNmouse` | Stub "no mouse" → T15 |
 | `nn::swkbd` | 7 | `ShowKeyboard`, `SetTextCheckCallback` | **NEW**: return "cancelled". A text prompt is a later nicety → T10 |
 | `nn::friends` | 6 | friend list and presence | **NEW**: empty list, offline → T10 |
-| `nn::time`, `nn::prepo`, `nn::movie`, `nn::pl`, `nn::account`, `nn::vi`, `nn::oe`, `nn::err`, `nn::ro` | 21 | assorted | Decide per call from the M3 trace → T09, T10 |
+| `nn::pl` | 3 | `GetBuiltInFontData` (Nx and Ounce overloads), `RequestLoadNxFont`. The Ounce overload is the first blocking call of every run: the game dereferences the font pointer it expects back (`reports/M2-boot.md`, `reports/M3-trace.md`) **[verified]** | **NEW**: serve a stand-in font from the bundled OFL fonts → T09a |
+| `nn::time`, `nn::prepo`, `nn::movie`, `nn::account`, `nn::vi`, `nn::oe`, `nn::err`, `nn::ro` | 18 | assorted | Decide per call from the trace; owners by namespace in `tasks/T10-offline-stubs.md` ("Ownership of traced calls") |
 
 Other points:
 

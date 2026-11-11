@@ -1,6 +1,6 @@
 # T13 · First frame and title screen (Gate 1)
 
-**Milestone:** M4 · **Depends on:** T10, T11, T12 · **Machine:** Mac driving the Deck; the user at the Deck
+**Milestone:** M4 · **Depends on:** T09a, T10 (Part A), T11 (device limits), T12, T08a · **Machine:** Mac driving the Deck; the user at the Deck
 for the final check
 
 ## Context
@@ -14,6 +14,16 @@ debug task: it may take more than one session; each session ends with a report u
 - `docs/design.md` §4 (all seven rules), §9 S3 and S4 notes, §10
 - `docs/development.md` "Pictures and frames", "The GPU"
 - `docs/plans/04-steam-deck.md` §4
+
+## Stops before the first present (added 2026-11-10)
+The first trace stopped long before any submit, and T10 Part B and T11 are trace-driven, so this task is
+where most missing calls will first appear. For each stop caused by a stub or a missing NVN proc, look up
+its owner in T10's "Ownership of traced calls" table:
+- owner is T10 Part B or T11 → end this session's attempt there, record the call in `M3-trace.md`
+  (regenerate it from the run's log), and run that task next as its own session;
+- owner is "the task whose run met it" → fix it here only if it is one function whose answer was checked
+  against the caller (disassemble the traced `lr` on the Mac); otherwise write a blocker report.
+Each relift costs about 45 minutes on the Deck (T08: 2,544 s): batch `HLE()` additions.
 
 ## Scope
 1. Reach the title screen in a headless run and in a windowed run on the Deck.

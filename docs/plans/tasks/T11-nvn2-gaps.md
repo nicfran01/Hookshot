@@ -1,6 +1,10 @@
 # T11 · NVN2 procs the game calls that the native layer lacks
 
-**Milestone:** M3 · **Depends on:** T09 · **Machine:** Mac driving the Deck
+**Milestone:** M3 (step 2), then repeatable · **Depends on:** T09a (the boot is past the font stop and
+`M3-trace.md` was regenerated) · **Machine:** Mac driving the Deck
+
+Revised 2026-11-10 (`reports/BLOCKER-T10-2026-11-10.md`): the first trace called 141 NVN procs, all
+implemented, and stopped before any submit. So this task is trace-driven and may have little to do at first.
 
 ## Context
 `host/nvn_native.c` implements 427 NVN procs by name; Raiders' `main` names 734 (`work/nvn_missing.txt` has
@@ -18,6 +22,12 @@ them Raiders calls before its first present. Hookshot's own game needed 14 at th
   `gpu/render/rx_nvn.h`
 - `gpu/render/nvn_api.h` (signatures and enums), `gpu/vk/VULKAN.md`
 - `docs/design.md` §4 (the replay's rules)
+
+## When the trace shows no missing proc
+If the current `M3-trace.md` §2 ("NVN procs called without an implementation") is empty, do only step 2
+below (the device-limits check, which needs no trace), record "not triggered" with the trace's "end:" line
+as evidence, and finish. The session that later meets a missing proc (most likely T13) runs the rest of
+this task then, as its own session. Never implement a proc no trace has seen.
 
 ## Scope
 Implement, in `host/nvn_native.c` (or a new `host/nvn_native_raiders.c` if the additions are many and
@@ -60,7 +70,9 @@ NVN proc the trace marked **blocking** or **wrong answer** before the first pres
 .venv/bin/python -I -B tests/run_all.py nvn
 scripts/deck/run.sh nvnN 180 -- HOS_NVN_STRICT=1 HOS_NO_MOVIES=1 && scripts/deck/fetch.sh nvnN
 grep -n "PresentTexture\|present" work/runs/nvnN/hookshot_log.txt | head -3     # a first present is reached under STRICT,
-                                                                               # or the report names the proc that stops it
+                                                                               # or the report names what stops it and its owner
+                                                                               # (T10's "Ownership" table); a stop outside NVN
+                                                                               # does not fail this task
 .venv/bin/python -I scripts/trace_report.py work/runs/nvnN/hookshot_log.txt | sed -n '/NVN procs called without/,/^$/p'
 .venv/bin/python -I -B tests/run_all.py
 ```

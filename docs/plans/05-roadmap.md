@@ -2,7 +2,7 @@
 
 Each milestone has one testable exit criterion. Tasks are sized for one Opus session each; a session that
 finds more than it can finish writes a blocker report (`06-handoff-guide.md`) instead of stretching.
-At a few hours a week, expect one or two tasks a week: 26 tasks is roughly four to six months, with wide
+At a few hours a week, expect one or two tasks a week: 27 tasks is roughly four to six months, with wide
 error bars on M4, M5 and M7 **[inferred]**.
 
 The original suggested M0 (reproduce a Hookshot build of its own game) is replaced by a toolchain-only M0,
@@ -27,10 +27,14 @@ flowchart LR
     T08a --> T13
     T08 --> T09[T09 trace report]
     T08 --> T12[T12 shader census on Deck]
-    T09 --> T10[T10 offline stubs]
-    T09 --> T11[T11 NVN2 gaps]
-    T10 --> T13[T13 first frame]
+    T09 --> T09a[T09a built-in font stand-in]
+    T09a --> T10[T10 offline guard, then answers as traced]
+    T09a --> T11[T11 device limits, then NVN2 procs as traced]
+    T09a --> T13[T13 first frame]
+    T10 --> T13
     T11 --> T13
+    T13 -.->|a trace shows their calls| T10
+    T13 -.->|a trace shows a missing proc| T11
     T12 --> T13
     T13 --> T14[T14 geometry stage, conditional]
     T13 --> T15[T15 input + gyro]
@@ -52,6 +56,12 @@ flowchart LR
 De-risking is front-loaded: T12 (do the shaders translate on RADV at all?) and T09 (what does the game call
 that the runtime lacks?) run as soon as a binary exists, before any effort goes into the picture. Frame rate
 and memory are first measured in T13 and T17, not left to M7.
+
+**The trace is a loop, not one pass.** The first trace stopped at the first blocking call (the built-in
+font), long before any submit, so it could not list what comes after. From T09a on, each task that gets the
+boot further regenerates `reports/M3-trace.md` from its own run. T10's answers (Part B) and T11's procs are
+done when a trace shows their calls, which may be as late as T13 or T15; the dotted arrows above are those
+returns. Owners by namespace: the "Ownership of traced calls" table in `tasks/T10-offline-stubs.md`.
 
 ## Milestones
 
@@ -76,18 +86,25 @@ and memory are first measured in T13 and T17, not left to M7.
   named unimplemented call recorded in `docs/plans/reports/M2-boot.md`.
 
 ### M3 · Trace everything up to the first crash or hang
-- **Tasks:** T09, T10, T11, T12.
-- **Exit:** `docs/plans/reports/M3-trace.md` lists every stub and NVN proc the game called (names and
-  counts, from `scripts/trace_report.py`), each marked implemented, safely stubbed, or blocking; no blocking
-  entry remains before the first `nvnQueuePresentTexture`. `docs/plans/reports/M3-shaders.md` gives the
-  translate/lower pass rate for all stages on RADV.
-- **Risk retired:** 5 (shader gaps), 6 (unknown calls), 7 (online dependency at boot).
+- **Tasks:** T09, T09a, T10 (Part A; Part B if triggered), T11 (device limits; procs if triggered), T12.
+- **Exit:** the boot passes the built-in font call (T09a); the offline guard is in place and a run shows no
+  non-loopback socket (T10 Part A); `docs/plans/reports/M3-trace.md`, regenerated from the latest run, lists
+  every stub and NVN proc the game called with a class and an owner; `docs/plans/reports/M3-shaders.md` gives
+  the translate/lower pass rate for all stages on RADV.
+- **Moved to M4:** "no blocking entry remains before the first `nvnQueuePresentTexture`". The first trace
+  showed that blocking calls are found one at a time as the boot advances, so clearing them all is part of
+  T13's loop, with T10 Part B and T11 run when their calls appear.
+- **Risk retired:** 5 (shader gaps). Risks 6 (unknown calls) and 7 (online dependency at boot) are only
+  retired at the M4 exit.
 
 ### M4 · First frame and title screen  — **Gate 1**
-- **Tasks:** T13, then T14 only if T13's log shows "dropped stages" on something visible.
+- **Tasks:** T13 (with T10 Part B and T11 as their calls appear), then T14 only if T13's log shows "dropped
+  stages" on something visible.
 - **Exit:** `scripts/deck/run.sh title 180` leaves a screenshot in `work/runs/title/shots/` that shows the
   title screen, and the log has no "device lost". The user confirms the picture against the console.
 - **Gate:** if this needs more than about six sessions beyond T13's first, write a re-plan before continuing.
+  Sessions spent in T10 Part B and T11 count towards the six. Each `HLE()` added costs a relift of about 45
+  minutes on the Deck (T08: 2,544 s), which is the main cost of this loop.
 
 ### M5 · In game and controllable  — **Gate 2 (first measurement)**
 - **Tasks:** T15, T16, T17.
@@ -147,3 +164,11 @@ and memory are first measured in T13 and T17, not left to M7.
   (`windows.h`, `VirtualAlloc`, SEH) and cannot run on the arm64 Mac, so T06 no longer runs them and T08 no longer
   defers to the Deck. T08a adds a Linux path (no edit to `third_party/`) and runs them on the Deck before T13.
   Also T25 candidate 9 and `02-gap-analysis.md` §2 (`reports/mac-test-baseline.md`).
+- 2026-11-10 (after T09, `reports/BLOCKER-T10-2026-11-10.md`): new task **T09a** (built-in font stand-in). Every run
+  stops at `nn::pl::GetBuiltInFontData`, which no task owned, and the trace saw no call in T10's namespaces. T10 is
+  split: Part A (offline guard: source check, Discord presence off, run-time socket check) is unconditional and moved
+  ahead of the answers; Part B (the offline answers) runs only when a trace shows its calls, and its acceptance
+  requires a trace that ends past the font call. T11 likewise does its device-limits check now and its procs when
+  traced. T13 depends on T09a and owns the stop-by-stop loop; an ownership table for traced calls is in T10.
+  M3's "no blocking entry before the first present" moved to M4. T09 must be merged into `main` before T09a.
+  Also `02-gap-analysis.md` §3 (`nn::pl` row) and `tasks/README.md`.
