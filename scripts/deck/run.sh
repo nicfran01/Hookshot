@@ -7,7 +7,9 @@
 # --args: more arguments for the executable, after its own (e.g. --args --prepare-shaders): plain words split at spaces.
 # Writes $DECK_ROOT/work/runs/<name>/: env.txt (the switches, read through HOS_ENV_FILE), hookshot_log.txt (what the
 # game printed), shots/ (RX_VK_SHOTS), peak_rss_kb.txt (the largest resident set of the run's processes, as
-# /usr/bin/time -v reports it: SteamOS has no time(1)), and game_log.txt when the game wrote its own log beside itself. Runs the
+# /usr/bin/time -v reports it: SteamOS has no time(1); only for a run that ends by itself: one stopped at the time
+# limit is not reaped through timeout, and its figure leaves the game out), and game_log.txt when the game wrote its
+# own log beside itself. Runs the
 # standalone build ($DECK_ROOT/work/sa/build/hookshot) when there is one, else the game folder ~/Games/raiders.
 # scripts/deck/fetch.sh <name> brings the folder back to the Mac's work/runs/<name>/ (game output: never committed).
 set -euo pipefail
@@ -87,5 +89,10 @@ case $code in
     *) echo "run $name: exited with $code" ;;
 esac
 echo "run $name: $(ls "$run/shots" | wc -l) screenshots, log $run/hookshot_log.txt"
-if [ -s "$run/peak_rss_kb.txt" ]; then echo "run $name: peak resident set $(cat "$run/peak_rss_kb.txt") kB"; fi
+if [ -s "$run/peak_rss_kb.txt" ]; then
+    case $code in
+        124|137) echo "run $name: no peak resident set (stopped at the time limit: the game was not reaped)"; rm -f "$run/peak_rss_kb.txt" ;;
+        *) echo "run $name: peak resident set $(cat "$run/peak_rss_kb.txt") kB" ;;
+    esac
+fi
 EOS
