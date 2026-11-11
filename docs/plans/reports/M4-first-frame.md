@@ -394,3 +394,68 @@ again and then shows the real title screen. It has:
 2. **Problem 7**, the hang: one session (**inferred**).
 3. **Problems 3-5**, the UI box and label class and the 3D artifacts: the UI class now has headless frames to start
    from.
+
+---
+
+# Session 3, continued: your windowed play-through (`prologue`)
+
+**Short answer:** the prologue cannot be finished yet. The game behaves as if the player stands in **enemy ink
+everywhere**. Its GPU results are a likely cause: the game reads back two GPU buffers every frame, and those buffers
+are **never written back** by the replay (problem 8, below). Gate 1 now waits on problem 8 as well as the hang.
+
+## What you saw (windowed, Deck controls, from the tutorial save)
+
+`scripts/deck/run.sh prologue 3600 --window --sound -- HOS_HANDHELD=1 HOS_WINDOW_SIZE=1280x720 RX_VK_SKIP_PROG=cffdbb02c4dfbd39`.
+The swapchain was 1280x718, mailbox. Exit 0 after you closed it; peak RSS 6,263,920 kB; save written at 14:02:27
+(5,073 B, kept in `~/raiders/work/t13s3_save_prologue/`). No device loss.
+
+- **A jump to the next platform falls short.**
+- **Walking is very slow,** with a "stuck in something sticky" animation.
+- **ZL turns you into a squid, but you cannot stay in your own ink.**
+- **The UI flickers a lot** (problem 4's class), **and foliage renders smeared.**
+
+These are consistent with one thing: the game believes the ground is enemy ink. In this game, enemy ink slows walking
+with that animation, stops normal jumps, keeps you out of squid form, and drains health. That fits the health loss and
+the gold ring under the character in `live1` (**inferred**; how the game decides what ink you stand on is **unknown**).
+
+## Problem 8 (new): two GPU readback buffers are never written back
+
+Run `ink1` (headless, the tutorial save, A presses into the tutorial area, `RX_VK_LOG_INVALIDATE=1`,
+`RX_VK_LOG_READBACK=5000`). Run `ink2`: the same path with `RX_VK_WATCH_RANGE=7fcda11000:7fcda18300`.
+
+- **The game reads back two buffers every frame** (verified): `nvnMemoryPoolInvalidateMappedRange` on `0x7fcda11000`
+  and `0x7fcda14980`.
+  - Each is 0x3980 bytes, and they alternate (double-buffered).
+  - They make up 332 of the first 400 invalidates in `ink1`, and the addresses are the same in `ink2`.
+  - `invalidate` reports "no texture the GPU wrote" for them.
+- **What the CPU reads is the same every time** in the 300 logged reads from present 5000: `3e4ccccd 44fa0000 3fe38e39
+  3f7ff972 0 0 44f9f99a 38d1bc75`. As floats that is 0.2, 2000, 1.778, 0.99999, 0, 0, 1999.8, 0.0001, which looks like
+  a camera header the CPU wrote (**inferred**). Only the first 32 bytes are logged, so the results behind them were not
+  seen.
+- **No write-back ever covered these ranges** (**inferred** from the counters).
+  - `vk_replay.cpp` `invalidate` counts a readback only when `memory_writeback_value(…, &ever)` says a write-back has
+    covered the range, and prints `readbacks of GPU results: … of 3000` every 3,000 such reads.
+  - That line never appears in `ink1`, although there are about 2 such reads a frame for thousands of frames.
+  - So the replay never wrote GPU output back to these ranges, and the CPU reads whatever was there.
+- **No GPU copy, clear or texture touches them** (verified, `ink2`: no `watch range` line of any kind). So if the GPU
+  writes them, it does so from a shader:
+  - a storage-buffer or global-memory write that the replay does not count as a written binding;
+  - or a write Eden could not track. `global_memory_to_storage_buffer_pass.cpp` uses run-time "fallbacks" for global
+    addresses it cannot trace back to a constant buffer.
+- **The program left out for the hang (`cffdbb02c4dfbd39`) is not the writer** (verified): its fragment IR has no
+  storage or global write (0 matches). Whether a program that was never drawn is the writer is **unknown**.
+
+**Next steps (one session, inferred):**
+1. A diagnostic, behind a switch (`(raiders)`, in `gpu/vk/`): log every written storage binding, and every
+   global-memory fallback write, that overlaps `RX_VK_WATCH_RANGE`, with its program key. That names the writer, or
+   shows there is none.
+2. If a writer exists: why its write is not written back (binding not marked written, fallback path, or an untracked
+   address). Fix it in the replay and check with a play run (the slow walk and ZL).
+3. If no GPU writer exists, the game fills them on the CPU, and the ink check is elsewhere. Then look at what the CPU
+   writes into these buffers after the readback (`RX_VK_WATCH_CPU`).
+
+## Gate 1, updated
+
+The title screen needs a save from after the prologue. Finishing the prologue needs problem 8 fixed (the ink state),
+and, for play without the switch, problem 7 (the hang). Problems 3-5 (UI boxes and labels, smeared foliage, 3D
+artifacts) remain open.
