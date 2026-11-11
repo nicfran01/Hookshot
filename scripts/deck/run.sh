@@ -71,6 +71,9 @@ rm -rf "$run" && mkdir -p "$run/shots" "$HOME/.local/share/raiders-recomp"
 } > "$run/env.txt"
 if [ "$window" = 1 ]; then
     export DISPLAY=${DISPLAY:-:0} XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+    # (raiders, T13) Desktop Mode is Plasma on Wayland: over SSH, SDL finds neither display without WAYLAND_DISPLAY
+    # (Xwayland wants Plasma's auth cookie), and the game said "SDL_Init: wayland,x11 not available: no window"
+    if [ -z "${WAYLAND_DISPLAY:-}" ] && [ -S "$XDG_RUNTIME_DIR/wayland-0" ]; then export WAYLAND_DISPLAY=wayland-0; fi
 fi
 marker=$run/.started && touch "$marker"
 echo "run $name: $exe ${more[*]+${more[*]}} for ${secs}s"
