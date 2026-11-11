@@ -53,6 +53,7 @@
 #include "vk_internal.h"
 #include "vk_jobs.h"
 #include "vk_draw.h"
+#include "vk_game.h"   // (raiders) oot_visual: Ocarina's only
 
 // (EvilOOT, RX_VK_PTR_DIAG) the pointer pass's counts for this thread's translations
 // (global_memory_to_storage_buffer_pass.cpp, declared by hand so no Eden header changes)
@@ -942,7 +943,7 @@ void oot_visual(Shader::IR::Program& program, uint64_t key) {
     // game's own fog is the soft haze with sun shafts of the console's picture at Kokiri's rock; the 0.08 factor was tuned against
     // the white wall those bugs made, and thinned every scene's fog)
     static const bool on = getenv("RX_VK_OOT_VISUAL") && atoi(getenv("RX_VK_OOT_VISUAL")) != 0;
-    if (!on) return;
+    if (!on || !vk_game_oot.load(std::memory_order_relaxed)) return;   // ((raiders) another game has no factors: games/<id>/game.py)
     static const float fog = getenv("RX_VK_OOT_FOG") ? (float)atof(getenv("RX_VK_OOT_FOG")) : 0.08f;   // (0.25, Orchid's, left a white forest once the game no longer lost its start)
     // (1: the game's own exposure. 0.65 was for the washed-out outdoors before shaders followed pointers; with the lighting right it
     // made scenes too dark, issue 103)

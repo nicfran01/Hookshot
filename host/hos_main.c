@@ -71,6 +71,9 @@ static void no_power_throttling(void) {
 #endif
 
 int hos_game_is_mkw(void) { return !strcmp(hos_main_build_id, "d00e4f399e411d0613aa8d26b1c02fef"); }
+/* (raiders) host/hos_game.h: the game of gen/hos_image.c (games/<id>/game.py) */
+int hos_game_is(const char *id) { return id && !strcmp(hos_game_id, id); }
+const char *hos_game_window_title(void) { return hos_game_title[0] ? hos_game_title : "Hookshot"; }
 
 /* gen/hos_image.c (build.py lift) */
 extern const uint64_t hos_main_stack_size;
@@ -425,12 +428,14 @@ int hos_oot_protect_hearts;
 volatile int hos_oot_live_action;   /* (test runs) the live input file's "!cheat <action>": host/nn_hid.c */
 
 int hos_oot_hearts_enabled(void) {
+    if (!hos_game_is("oot")) return 0;   /* (raiders) Ocarina's guest addresses: host/hos_game.h */
     int rx_option(int id, int otherwise);
     const int menu = rx_option(HOS_OPT_CHEAT_HEARTS, -1);
     return menu < 0 ? hos_oot_protect_hearts : menu;
 }
 
 int hos_oot_is_player(Ctx *c, uint64_t actor) {
+    if (!hos_game_is("oot")) return 0;   /* (raiders) Ocarina's guest addresses: host/hos_game.h */
     if (recomp_load64(c, actor) != 0x84b6c460ULL) return 0;
     // Other actors share this vtable. The actor's resource record identifies Link.
     const uint64_t resource = recomp_load64(c, actor + 16);
@@ -1059,6 +1064,7 @@ static void oot_update_player_cheats(Ctx *c, uint64_t actor, uint64_t components
 #endif
 
 int hos_oot_flight_shortcut_ready(void) {
+    if (!hos_game_is("oot")) return 0;   /* (raiders) Ocarina's guest addresses: host/hos_game.h */
 #if defined(_WIN32) || defined(__linux__)   /* (the debug tools: host/posix has what they call) */
     const int64_t seen = __atomic_load_n(&flight_player_seen, __ATOMIC_RELAXED);
     return seen && hos_now_ns() - seen < 250000000;
@@ -1082,6 +1088,7 @@ static void oot_write_flight_rotation(Ctx *c, uint64_t matrix) {
 #endif
 
 void hos_oot_flight_rotation(Ctx *c, uint64_t controller, uint64_t matrix) {
+    if (!hos_game_is("oot")) return;   /* (raiders) Ocarina's guest addresses: host/hos_game.h */
 #if defined(_WIN32) || defined(__linux__)   /* (the debug tools: host/posix has what they call) */
     if (flight_transform_controller == controller) oot_write_flight_rotation(c, matrix);
 #else
@@ -1092,6 +1099,7 @@ void hos_oot_flight_rotation(Ctx *c, uint64_t controller, uint64_t matrix) {
 }
 
 void hos_oot_flight_pose(Ctx *c, uint64_t actor, uint64_t matrix) {
+    if (!hos_game_is("oot")) return;   /* (raiders) Ocarina's guest addresses: host/hos_game.h */
 #if defined(_WIN32) || defined(__linux__)   /* (the debug tools: host/posix has what they call) */
     if (flight_pose_actor == actor) {
         flight_pose_actor = 0;
@@ -1105,6 +1113,7 @@ void hos_oot_flight_pose(Ctx *c, uint64_t actor, uint64_t matrix) {
 }
 
 void hos_oot_lift_player(Ctx *c, uint64_t actor) {
+    if (!hos_game_is("oot")) return;   /* (raiders) Ocarina's guest addresses: host/hos_game.h */
 #if defined(_WIN32) || defined(__linux__)   /* (the debug tools: host/posix has what they call) */
     flight_pose_actor = 0;
     if (recomp_load64(c, actor) != 0x84b45e18ULL) return;
@@ -1185,6 +1194,7 @@ static void oot_build_free_view(Ctx *c, uint64_t view, uint64_t out) {
 #endif
 
 void hos_oot_free_view(Ctx *c, uint64_t view) {
+    if (!hos_game_is("oot")) return;   /* (raiders) Ocarina's guest addresses: host/hos_game.h */
 #if defined(_WIN32) || defined(__linux__)   /* (the debug tools: host/posix has what they call) */
     int rx_option(int id, int otherwise);
     if (!view || recomp_load64(c, view) != 0x84c18a88ULL) return;

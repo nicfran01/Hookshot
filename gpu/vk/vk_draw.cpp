@@ -34,6 +34,7 @@
 #include "vk_paths.h"
 #include "vk_draw.h"
 #include "vk_menu.h"          // (opts.anisotropy: the Anisotropic filtering row; resolution_scale)
+#include "vk_game.h"          // ((raiders) the default program skip is Ocarina's)
 #include "upscaler_rows.h"    // (upscale_lod_bias: which upscalers draw the 3D smaller)
 #include "dlss_actor.h"
 #include "vk_temporal.h"
@@ -5834,7 +5835,10 @@ void draw(VkCommandBuffer cmd, NvnState& s, const DrawArgs& d) {
         // was left out always. Left out, the volumes stayed zero and the foliage's LOD crossfade left trees bare at mid distance
         // (#1151). Where the driver takes the usage (vk_texture.cpp) the views are made and the pass is sized in blocks
         // (targets()); it runs there, and is still left out where they are not)
-        static const bool default_list = !getenv("RX_VK_SKIP_PROG");
+        // ((raiders) the default list is Ocarina's, games/oot/game.py SKIP_PROGRAMS: another game has none. RX_VK_SKIP_PROG set
+        // still wins for any game)
+        static const bool skip_env_unset = !getenv("RX_VK_SKIP_PROG");
+        const bool default_list = skip_env_unset && vk_game_oot.load(std::memory_order_relaxed);
         if (default_list && cp->key == 0x53509044401d78d2ull && !at.n) {
             static std::atomic<int> told{0};
             if (told++ < 2)

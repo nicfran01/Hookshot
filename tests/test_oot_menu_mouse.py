@@ -42,6 +42,7 @@ extern uint8_t *fake_heap;
 #define GP(a) ((void *)(fake_heap + ((uint64_t)(a) - FAKE_BASE)))
 void hos_log(const char *fmt, ...);
 int64_t hos_now_ns(void);
+int hos_game_is(const char *id);   /* (raiders) host/hos_game.h */
 """
 
 VK_API_H = r"""
@@ -62,6 +63,7 @@ static uint64_t heap_top = FAKE_BASE + 0x1000;
 static int64_t clock_ns = 1000000000LL;
 void hos_log(const char *fmt, ...) { va_list a; va_start(a, fmt); vfprintf(stderr, fmt, a); va_end(a); fputc(10, stderr); }
 int64_t hos_now_ns(void) { return clock_ns; }
+int hos_game_is(const char *id) { return !strcmp(id, "oot"); }   /* (raiders) the game is Ocarina */
 void hos_oot_menu_focus(Ctx *c, uint64_t screen, uint64_t pane, uint64_t lr);
 void hos_oot_menu_tick(Ctx *c, uint64_t screen);
 

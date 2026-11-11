@@ -31,6 +31,7 @@
 #include "vk_menu_hit.h"
 #include "vk_draw.h"   // (pipeline_cache_save: Restart now keeps what was built)
 #include "oot_cheat_items.h"
+#include "vk_game.h"   // (raiders) the debug tools are Ocarina's
 #include "vk_progress.h"   // (StartupView, version_text: the start-up screen)
 #include "vk_ui.h"
 #include "vk_menu_keys.h"   // (which gamepad buttons confirm and go back: those A and B are bound to)         // (how it looks: Dear ImGui, vk_imgui.h)
@@ -807,7 +808,7 @@ constexpr int kRestartRow = kQuitRow - 1;
 const Row* pending = nullptr;   // (Restart or Quit: shows Confirm until its second press)
 bool cheats_env = false;   // (HOS_OOT_CHEATS=1: on whatever the Debug tab says)
 /// The debug tools: the Debug tab's row, or HOS_OOT_CHEATS=1
-bool cheats_on() { return cheats_env || opts.debug_tools; }
+bool cheats_on() { return vk_game_oot.load(std::memory_order_relaxed) && (cheats_env || opts.debug_tools); }   // ((raiders) Ocarina's only)
 std::atomic<int> protect_hearts{-1};
 // -1 disables the shortcut, 0 enables it on the ground, and 1 means flying.
 std::atomic<int> player_flight{-1};
@@ -1014,6 +1015,7 @@ int ask_sel = 0;   // (the restart question's choice: 0 Later, 1 Restart now)
 bool row_shown(int i) {
     const int* v = rows[i].value;
     return (rows[i].cheat < 0 || cheats_on()) && (v != &opts.reflex || reflex_available()) &&
+           (v != &opts.debug_tools || vk_game_oot.load(std::memory_order_relaxed)) &&   // ((raiders) its switch: Ocarina's too)
            (v != &opts.antilag || antilag_available()) &&
            (v != &opts.dlss || ur::upscaler_shown(upscalers_available())) &&
            (v != &opts.dlss_model || ur::model_shown(dlss_why() == DLSS_OK)) &&
@@ -2575,6 +2577,10 @@ bool fps_take(int64_t now, int64_t shown, int64_t game, int64_t* next, int64_t* 
 }
 
 void menu_option_set(int id, int value) {
+    if (id == HOS_OPT_GAME_OOT) {   // ((raiders) the host's game, before the start: vk_game.h. Not saved)
+        vk_game_oot.store(value != 0, std::memory_order_relaxed);
+        return;
+    }
     if (id == OOT_CHEAT_AGE_ID) {   // (Link's age: the Switch age row shows it)
         if (link_age.exchange(value, std::memory_order_relaxed) != value && page == 0 && cur_tab == TAB_DEBUG) menu_refresh = true;
         return;
