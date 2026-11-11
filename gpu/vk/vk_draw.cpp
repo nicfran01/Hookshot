@@ -47,6 +47,7 @@
 #include "vk_texture.h"
 #include "movie_upscale_policy.h"
 #include "skip_code.h"
+#include "vk_occlusion.h"     // (raiders) samples-passed reports from occlusion queries
 
 #include "shaders/clear_f_frag_spv.h"
 #include "shaders/clear_i_frag_spv.h"
@@ -6230,6 +6231,8 @@ void draw(VkCommandBuffer cmd, NvnState& s, const DrawArgs& d) {
         }
     }
     StatsQuery stats_query(cmd, p.key, d);   // (EvilOOT, RX_VK_DRAW_STATS)
+    OccQuery occ_query(cmd);   // ((raiders) a samples-passed bracket's query around the draw command: vk_occlusion.h. After
+                               // stats_query: it ends first, before anything that one does at its end)
     if (stats_frame_now() && stats_prog_wanted(p.key)) {   // (and the wanted programs' buffers: a mesh draw's stages, fragment)
         for (const int stage : {6, 7, 1}) stats_dump_stage(p.key, s, stage);
         // (and as the GPU holds them, after it: RX_VK_GPU_DUMP=1 only; its bindings can sync a pool's mirror mid-frame, and

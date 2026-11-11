@@ -521,3 +521,136 @@ The Deck build of the final code: `compiled in 13s, 0 failed`.
 2. Dump the textures `1b75d9ca` and `fd958faa` sample (`RX_VK_DUMP` with PNGs, `RX_VK_DUMP_PROGS`), to see whether a
    paint map is among them and what it holds.
 3. Failing those, look at the game side: which CPU code reads these results, and what it decides from them.
+
+---
+
+# Session 5 (2026-11-11): problem 8 found and fixed (occlusion counts)
+
+**Short answer:** the enemy-ink behaviour came from the replay's answer to the game's **samples-passed counter** (an
+occlusion query). The replay wrote a fixed 4096 for every such report (`gpu/vk/vk_replay.cpp:811`, upstream's fix for
+Ocarina's sun). Raiders uses these counts to work out the ink under the player. Real counts from Vulkan occlusion
+queries fix it in a headless run (**verified**, below): normal walking, no health drain, squid form in the player's own
+ink. Your windowed check is still to do.
+
+## How it was found
+
+1. **The rare readbacks (session 4's next step 1).** In `ink1`, besides the two camera buffers, a thread named
+   `ColPaintThread` invalidated 61 ranges once each at load (present ~840; log lines 15405-15471). Their sizes fit
+   16-bit index buffers, e.g. `+0x2a0` = 112 triangles. So they look like map geometry the collision-paint builder
+   reads, not GPU results (**inferred**).
+2. **The game side** (strings and their references in `work/image/image.bin`, scratch scripts, not committed):
+   - the collision-paint code is `spl::paint::ColPaint*` (`ColPaintBuilder`, `ColPaintPixelAreaBuilder`,
+     `ColPaintMaskDrawer`, `ColPaintBakePaintableUnitDrawQueryPool`), at about `0x82ab0000`-`0x82ae0000`;
+   - the game's only samples-passed (type 1) report comes from `lr 0x82ac7998` (**verified**, `nvn: the game reports
+     counter type 1` in every run). It is in the function that also references `ColPaintMaskDrawer::depth` and
+     `countup` (`0x82ac5d20`). There the sequence is: take a query slot, `ResetCounter(SAMPLES_PASSED)`, one
+     `DrawElements`, `ReportCounter(SAMPLES_PASSED, slot)`. So the game counts pixels per paint unit;
+   - the query pool has 65,536 slots of 0x60 bytes (`0x82ab56a0`). Its result reader (`0x811eb380`) waits for the
+     report's timestamp word to be non-zero, takes the low 32 bits as the count, then zeroes the slot.
+3. **The test** (`occ0`): the same save and the same steering, with `RX_VK_OCC_FIXED=0` (every count 0). At the
+   beach's first tutorial step:
+
+   | Run | Counts | Health at the reticle step | Stance |
+   |---|---|---|---|
+   | `live1` (session 3) | 4096 (default then) | **61/100** at present 7080, 50/100 at 8280, damage edges | the "sticky" pose, gold ring |
+   | `occ0` | 0 | **100/100** at present 9120 and still at 14700 | normal |
+
+   So the counter results decide the ink state under the player (**verified**). Zero is not right either: `occ0` drew
+   ~1,220 draws and 84-92 passes a frame against the baseline's ~1,600 and 103. The game left work out when nothing
+   counted.
+
+## The fix
+
+New `gpu/vk/vk_occlusion.h` and `gpu/vk/vk_occlusion.cpp`, with small hooks marked `(raiders)`:
+
+- `vk_replay.cpp:829` (reset): a reset of SAMPLES_PASSED opens a **bracket**.
+- `vk_replay.cpp:1198`, `1211`, `1225`, `1243` (the four draw ops): each draw in a bracket takes the next query number.
+- `vk_draw.cpp:6234`: `OccQuery` begins that Vulkan occlusion query (precise) around the draw command, just after
+  `StatsQuery`, in the open pass.
+- `vk_replay.cpp:785` (report): the bracket's numbers so far are queued.
+- A collector thread (`vk_occlusion.cpp` `collector`) writes `{sum, timestamp}` to the report's address once the GPU
+  has every query, and marks the words CPU-owned so write-backs leave them alone.
+- The numbers are given out in stream order by the dry pass and the serial replay, under `replay_mu`. Parallel workers
+  get the same numbers from their state snapshots, and `vk_replay.cpp:1408` (`occ_sync`) keeps them following across
+  command buffers and queues.
+- A draw left out (not recorded) counts 0. A bracket stops counting after 4,096 draws, and its later reports get the
+  fixed value.
+- The bookkeeping is kept in `NvnState::samples_passed`, so `vk_state.h` is unchanged: that file is part of the
+  shader-cache stamp (`nx2/build.py`), and changing it would make every shader recompile.
+
+**Switches:**
+- `RX_VK_OCC_REAL=1/0`. The default is **on for every game except Ocarina** (`vk_game_oot`), so upstream's game keeps
+  its fixed 4096. Setting `RX_VK_OCC_FIXED` also selects the old path, as before.
+- `RX_VK_OCC_LOG=<n>` logs the first n collected reports.
+
+This is generic (any NVN game that reads occlusion counts), so it is an **upstream PR candidate**.
+
+## Runs
+
+| Run | Switches | Result |
+|---|---|---|
+| `occ0` | `RX_VK_OCC_FIXED=0`, live input, the hang's program left out | The table above. No device loss |
+| `occ1` | the new build (real counts by default), `RX_VK_OCC_LOG=60`, live input, the hang's program left out | The details are below this table. No device loss, no "given up" reports |
+
+**`occ1` in detail:**
+- **Startup:** `vk: occlusion: samples-passed reports from occlusion queries (262144, precise)`.
+- **The first 60 reports** carry real per-unit counts from 0 to 1,176, mostly in equal pairs (968, 968, 952, 952…).
+  Before this fix every one was 4096.
+- **The reticle step:** health **100/100** and the normal stance at presents 6600-8280.
+- **Walking:** after the step was accepted, 4 s of walking climbed the dune and picked up the first shard. 8 s more reached the
+  water's edge.
+- **Squid form:** ZL into the teal ink put the player fully under the ink as a squid (the character is hidden), and the
+  squid then moved on out onto sand.
+
+**Frame rate:** at the same place, `occ1` runs at 32.5-33.4 fps with 1,607-1,682 draws and 103-104 passes. The baseline
+`live1` ran at 32.3-33.0 fps with 1,478-1,687 draws and 102-104 passes. So the queries cost nothing measurable
+(**verified** from the `presents` lines).
+
+**Saves:**
+- `occ0` rewrote the save as the 4,907-byte prologue save (as `title7` did); `occ1` wrote 5,073 B.
+- Both are kept, in `~/raiders/work/t13s5_save_after_occ0/` and `t13s5_save_after_occ1/`.
+- Your prologue save (`f5f463d9…`, from `t13s3_save_prologue`) was put back after each run.
+
+**Smoke runs after the last change** (`occ2`, `occ3`: headless, no input, 150 s):
+- 5 and 200 reports collected, 132 of the 200 non-zero; no device loss.
+- The change was writing the report words through `guest_cpu_write` (below).
+
+## Tests
+
+- **The first full run** (`HOOKSHOT_VULKAN_HEADERS`/`HOOKSHOT_SPIRV_HEADERS` set to `/opt/homebrew/include`, `--jobs 4`):
+  325 passed, **10** failed, 9 skipped in 826 s.
+  - The new failure was `tests/test_wb_diff_cpu_writes.py`: the collector wrote guest memory with `host->gpu_write`, which
+    the write-back diff's shadows never hear of.
+  - It now writes through `guest_cpu_write`, and that test passes on its own (5 tests OK).
+  - The other 9 failures are session 4's set (compared by name with `work/t13_ink_run_all2.log`). One of them is
+    `test_program_cache_reader`, which timed out at 600 s here.
+- **Not re-run in full** after that one-line change.
+- **Deck build of the final code:** `compiled in 4s, 0 failed`.
+
+## Open points
+
+- **The first ~22 reports differ between runs (unknown).** In `occ1` they were 0, 0, 800, 0, 186, 135…; in `occ2` and
+  `occ3`, all 0. From the 23rd on, the runs agree value for value (40, 0, 968, 968, 952, 952…). Whether this is the
+  game's own timing (units baked before their mask is drawn) or an ordering problem in the replay is **unknown**.
+  `occ1` played correctly with its values. If the ink state is wrong in some places, compare `RX_VK_OCC_LOG=200` across
+  runs there.
+
+- **Render conditions on these counts: unknown.** Reports are now written when the GPU has them, not in stream order.
+  The game's NVN proc list names `SetRenderEnableConditional`, but whether it uses it on samples-passed reports is
+  unknown. If objects go missing or flicker, look there first (`RX_VK_OCC_REAL=0` is the A/B).
+- **The UI flat boxes (problem 4) are still there**, now over the health bar and the prompts, in `occ1` too.
+- **No game-free test** for the new module yet: it needs a Vulkan device for the queries. The bracket numbering could be
+  tested on its own if it is split out.
+
+## Gate 1, updated
+
+1. **Your windowed play-through** with the new build. Problem 8 is fixed headless. The prologue may now be playable to
+   its end (jumps, swimming, the rest of the tutorial), which gives the save the title screen needs. The hang (problem 7)
+   still needs `RX_VK_SKIP_PROG=cffdbb02c4dfbd39`:
+
+   ```
+   scripts/deck/run.sh prologue2 3600 --window --sound -- HOS_HANDHELD=1 HOS_WINDOW_SIZE=1280x720 RX_VK_SKIP_PROG=cffdbb02c4dfbd39
+   ```
+
+2. **Problem 7**, the hang: unchanged.
+3. **Problems 3-5**, the UI boxes and labels, smeared foliage and 3D artifacts: unchanged.
