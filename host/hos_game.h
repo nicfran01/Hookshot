@@ -10,3 +10,6 @@ extern const char hos_game_data_dir[];  /* the saves' folder name (~/.local/shar
 
 int hos_game_is(const char *id);        /* 1 when this build's game is id */
 const char *hos_game_window_title(void);   /* hos_game_title, "Hookshot" when it is empty */
+/* (T11) nvnDeviceGetInteger answers this game's driver gives differently from host/nvn_native.c devinfo[]: {id, value} pairs,
+   ending at id -1 (games/<id>/game.py NVN_DEVICE_INFO, through nx2/standalone.py nvn_device_info_c) */
+extern const int hos_game_nvn_devinfo[][2];

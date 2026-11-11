@@ -218,10 +218,13 @@ static const int devinfo[] = {
 NV(nvnDeviceGetInteger) {
     const unsigned w = U32(1);
     if (w >= sizeof devinfo / sizeof *devinfo) die("device property %#x", w);
+    int v = devinfo[w];
+    for (int k = 0; hos_game_nvn_devinfo[k][0] >= 0; k++)   /* (raiders) where this game's driver differs: games/<id>/game.py */
+        if (hos_game_nvn_devinfo[k][0] == (int)w) v = hos_game_nvn_devinfo[k][1];
     static int devinfo_log = -1;
     if (devinfo_log < 0) devinfo_log = getenv("HOS_NVN_DEVINFO_LOG") != NULL;
-    if (devinfo_log) hos_log("nvn: nvnDeviceGetInteger(%u) -> %d", w, devinfo[w]);
-    *(int *)P(2) = devinfo[w];
+    if (devinfo_log) hos_log("nvn: nvnDeviceGetInteger(%u) -> %d", w, v);
+    *(int *)P(2) = v;
 }
 NV(nvnDeviceRegisterFastClearColor) { RET(0); }   /* "not registered": the game keeps its normal clears */
 NV(nvnDeviceRegisterFastClearColori) { RET(0); }
