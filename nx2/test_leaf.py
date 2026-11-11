@@ -219,7 +219,18 @@ def select(P, counts, rng, calls, max_tree):
 HARNESS = r"""
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef _WIN32
 #include <windows.h>
+#else
+/* (raiders) POSIX: the image and scratch mapped at their guest addresses, a fault caught by a signal handler */
+#include <setjmp.h>
+#include <signal.h>
+#include <string.h>
+#include <sys/mman.h>
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000   /* (Linux 4.17; glibc names it from 2.28) */
+#endif
+#endif
 static const A64Fn T[] = {%(table)s};
 void a64_trap(Ctx *c, uint64_t pc, uint32_t insn) { (void)pc; (void)insn; c->halted = 9; }
 void a64_ret_mismatch(Ctx *c, uint64_t pc) { (void)pc; c->halted = 10; }
@@ -259,15 +270,51 @@ static void make_scratch(uint64_t seed, uint64_t *out) {
         out[i] = (z & 3) == 0 ? ((SCR_BASE + (z >> 12) %% (SCR_SIZE - 256)) & ~7ULL) : z;
     }
 }
+#ifdef _WIN32
 static int run(int idx, Ctx *c) {
     poll_ctx = c;
     __try { T[idx](c); } __except (EXCEPTION_EXECUTE_HANDLER) { return (int)GetExceptionCode(); }
     return 0;
 }
+#else
+/* (raiders) a fault in a lifted function jumps back here, on a stack of its own (the fault can be a stack overflow), and
+   reads as the Windows exception code of the same kind: access violation, illegal instruction, integer divide by zero */
+static sigjmp_buf fault_jmp;
+static volatile sig_atomic_t fault_sig;
+static void on_fault(int sig) { fault_sig = sig; siglongjmp(fault_jmp, 1); }
+static void catch_faults(void) {
+    static int done;
+    if (done) return;
+    done = 1;
+    stack_t ss; memset(&ss, 0, sizeof ss);
+    ss.ss_size = 1 << 16; ss.ss_sp = malloc(ss.ss_size);
+    sigaltstack(&ss, NULL);
+    struct sigaction sa; memset(&sa, 0, sizeof sa);
+    sa.sa_handler = on_fault; sa.sa_flags = SA_ONSTACK; sigemptyset(&sa.sa_mask);
+    sigaction(SIGSEGV, &sa, NULL); sigaction(SIGBUS, &sa, NULL); sigaction(SIGILL, &sa, NULL); sigaction(SIGFPE, &sa, NULL);
+}
+static int fault_code(int sig) {
+    return sig == SIGILL ? (int)0xC000001DU : sig == SIGFPE ? (int)0xC0000094U : (int)0xC0000005U;
+}
+static int run(int idx, Ctx *c) {
+    poll_ctx = c;
+    catch_faults();
+    if (sigsetjmp(fault_jmp, 1)) return fault_code(fault_sig);
+    T[idx](c);
+    return 0;
+}
+#endif
 int main(int argc, char **argv) {
     FILE *img = fopen(argv[1], "rb"), *in = fopen(argv[2], "rb"), *out = fopen(argv[3], "wb");
+#ifdef _WIN32
     if (VirtualAlloc(A64_PTR(IMG_BASE), IMG_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) != A64_PTR(IMG_BASE)) return 3;
     if (VirtualAlloc(A64_PTR(SCR_BASE), SCR_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) != A64_PTR(SCR_BASE)) return 4;
+#else
+    if (mmap(A64_PTR(IMG_BASE), IMG_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0)
+        != (void *)A64_PTR(IMG_BASE)) return 3;
+    if (mmap(A64_PTR(SCR_BASE), SCR_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0)
+        != (void *)A64_PTR(SCR_BASE)) return 4;
+#endif
     if (fread(A64_PTR(IMG_BASE), 1, IMG_SIZE, img) != IMG_SIZE) return 5;
     p_img = malloc(IMG_SIZE); p_scr = malloc(SCR_SIZE);
     memcpy(p_img, A64_PTR(IMG_BASE), IMG_SIZE);
