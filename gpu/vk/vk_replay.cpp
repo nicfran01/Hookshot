@@ -2255,9 +2255,21 @@ void invalidate(uint64_t gpu, uint64_t size) {
         if (from >= 0 && presents_now >= from && n++ < 300) {
             uint32_t w[8]{};
             host->gpu_read(gpu, w, sizeof w);
-            logf("vk: readback %lld %#llx +%#llx: fence %llu done %llu behind %d | %08x %08x %08x %08x %08x %08x %08x %08x",
+            // ((raiders) T13: the whole range's FNV-1a (as RX_VK_DUMP_SSBO's "hash") and its write-back state, to tell
+            // whether the GPU's results reached guest memory before the CPU reads them)
+            uint64_t h = 0xcbf29ce484222325ull;
+            bool ever = false;
+            const uint64_t wbv = memory_writeback_value(host->gpu_guest(gpu), size, &ever);
+            if (size <= (1u << 20)) {
+                std::vector<uint32_t> all((size_t)(size / 4));
+                if (!all.empty() && host->gpu_read(gpu, all.data(), all.size() * 4))
+                    for (uint32_t v : all) h = (h ^ v) * 0x100000001b3ull;
+            }
+            logf("vk: readback %lld %#llx +%#llx: fence %llu done %llu behind %d | %08x %08x %08x %08x %08x %08x %08x %08x | "
+                 "hash %016llx, write-back %s (value %llu)",
                  (long long)presents_now, (unsigned long long)gpu, (unsigned long long)size, (unsigned long long)fence(),
-                 (unsigned long long)completed(), (int)replay_behind(), w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]);
+                 (unsigned long long)completed(), (int)replay_behind(), w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7],
+                 (unsigned long long)h, ever ? "seen" : "never", (unsigned long long)wbv);
         }
     }
     // (EvilBoyce) GPU results in buffers: the CPU reads them once the submission that writes them back is done. The game

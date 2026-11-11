@@ -2857,6 +2857,23 @@ void build_descriptors(const NvnState& s, const Program& p) {
                                  (unsigned long long)size, b ? "yes" : "NO");
                     }
                 }
+                {   // ((raiders) RX_VK_WATCH_RANGE=<lo>:<hi>: storage bindings overlapping it, the program, whether it writes and
+                    // how much of it goes back to guest memory; 400 lines. T13: what fills the game's per-frame readbacks)
+                    static const std::pair<uint64_t, uint64_t> range = [] {
+                        unsigned long long lo = 0, hi = 0;
+                        if (const char* e = getenv("RX_VK_WATCH_RANGE")) sscanf(e, "%llx:%llx", &lo, &hi);
+                        return std::pair<uint64_t, uint64_t>{lo, hi};
+                    }();
+                    static std::atomic<int> logged{0};
+                    if (range.second && addr && base < range.second && base + std::max<uint64_t>(n, 1) > range.first &&
+                        logged.fetch_add(1) < 400)
+                        logf("vk: watch range storage binding: program %016llx stage %d entry %u (c%u+%#x, %u) %#llx +%#llx (size word "
+                             "%#llx) %s%s%s", (unsigned long long)p.key, ns, (unsigned)k, (unsigned)d.cbuf_index,
+                             (unsigned)d.cbuf_offset, (unsigned)d.count, (unsigned long long)addr, (unsigned long long)n,
+                             (unsigned long long)size, d.is_written ? "written" : "read only",
+                             d.is_written ? (bare ? ", bare: 64 bytes written back" : ", written back whole") : "",
+                             b ? "" : ", NOT bound");
+                }
                 // (census: every single descriptor, and table entries that hold something, with where they came from)
                 if (d.count == 1 || addr) {
                     // (unresolved: the uniform buffer the word was read from, its address and size, in the vk fields)

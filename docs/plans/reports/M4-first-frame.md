@@ -459,3 +459,65 @@ Run `ink1` (headless, the tutorial save, A presses into the tutorial area, `RX_V
 The title screen needs a save from after the prologue. Finishing the prologue needs problem 8 fixed (the ink state),
 and, for play without the switch, problem 7 (the hang). Problems 3-5 (UI boxes and labels, smeared foliage, 3D
 artifacts) remain open.
+
+---
+
+# Session 4 (2026-11-11): problem 8, the ink readback
+
+**Short answer: session 3's lead was wrong.** The replay does return the GPU's results to the game: what the CPU reads
+matches what the GPU wrote, byte for byte, one frame later. So the "never written back" reading of the counters was
+mistaken. The cause of the enemy-ink behaviour is still **unknown**.
+
+## Diagnostics added (switches only; no change in behaviour)
+
+- `gpu/vk/vk_draw.cpp` `build_descriptors`: with `RX_VK_WATCH_RANGE=<lo>:<hi>`, each storage binding overlapping the
+  range is logged (400 lines). The line gives the program, stage, entry, constant-buffer source, address and length,
+  whether it is written, and whether it is written back whole or only 64 bytes (bare).
+- `gpu/vk/vk_dump.cpp`: each `RX_VK_DUMP_SSBO` buffer line now ends with the FNV-1a hash of the whole buffer,
+  `(hash …)` after the existing colon. `tests/dump_readback_test.cpp` still matches.
+- `gpu/vk/vk_replay.cpp` `invalidate`: each `RX_VK_LOG_READBACK` line now also gives:
+  - the same hash over the whole range the CPU is about to read;
+  - whether a write-back was ever recorded for the range, and its value.
+
+All three are marked `(raiders)`.
+
+**Tests.** The first full run gave 325 passed, **10** failed: `tests/test_parallel_rb_refresh.py` compiles a text cut of
+`build_descriptors` (up to the "(EvilOOT) the wanted programs' storage descriptors" block), and the watch block was
+inside the cut. It was moved to just after that block, outside the cut, with no change to upstream's text. Then:
+- `test_parallel_rb_refresh`, `test_dump_readback`, `test_recorded_wait_flush` and `test_desc_clock` all pass;
+- the full suite (header paths set) gives **326 passed, 9 failed, 9 skipped** in 728 s, the baseline's 9.
+
+The Deck build of the final code: `compiled in 13s, 0 failed`.
+
+## Runs (headless, tutorial save, A presses into the tutorial area, the hang's program left out)
+
+| Run | Switches | Found |
+|---|---|---|
+| `ink3` | `RX_VK_WATCH_RANGE=7fcda11000:7fcda18300` | **3 compute programs bind the two readback buffers as written storage every frame:** `8e895bab2bdea870`, `1b75d9ca469133ac` and `fd958faab99f20a2`. Each binds stage 5, entry 0, from `c0+0x20`, 0x3980 bytes, "written back whole", ~66 times each in the run. `99b055ff7493a6ae` binds them twice |
+| `ink4` | `RX_VK_DUMP=5000`, `RX_VK_DUMP_SSBO=` the three | Their other buffers: `8e895bab` rewrites a 64 KB list (`sb1`) and sets a counter (`sb4`); `1b75d9ca`'s `sb1` is 23,360 bytes, mostly `0x00ffffff` words |
+| `ink5` | the same, with the hash | **`1b75d9ca` and `fd958faa` change the readback buffer on every frame; `8e895bab` does not** (before and after hashes, 3 frames) |
+| `ink6` | the hash on both sides, presents 4998-5003 | **The CPU reads exactly the GPU's output a frame later.** Present 5001 reads `0x7fcda11000` with hash `d615145559254c6d`, which is `fd958faa`'s output in the frame dumped just before. Presents 5002 (`8b39e385…`) and 5003 (`5108f1a5…`) match the same way. The write-back flag says "never", but the bytes arrive: the GPU writes this pool in place, which that flag does not record |
+
+## What this rules out, and what is left
+
+- **Ruled out (verified):**
+  - lost write-backs of these two buffers;
+  - a read of stale memory by the CPU;
+  - the hang's program as their writer.
+- **The buffers' content:** the first 26 words of each look like camera data. A header of 0.2, 2000, 16/9 and
+  0.99999 (near, far, aspect), then values like a view matrix. The GPU writes elsewhere in the 3,680 words.
+  - So these readbacks may be a camera or visibility query, not the ink query (**unknown**). Session 3's "likely the
+    ink query" was an inference.
+- **Still open:** how the game decides the ink under the player. Candidates (**inferred**):
+  1. **Another GPU readback.** Only these two were among the first 400 invalidates of the session, but other buffers
+     read less often (`0x7f…1000 +0x80` pairs, read once or twice) were not examined.
+  2. **The paint itself:** a compute pass reads a paint texture that is wrong in the replay (format, or not drawn). The
+     query would then compute "enemy" or "none" correctly from a wrong texture.
+  3. **A CPU-side check** that never touches the GPU.
+
+## Next steps (inferred, about one session)
+
+1. Examine the small, rare readbacks (`+0x80`): their writers and contents, with the same switches.
+2. Dump the textures `1b75d9ca` and `fd958faa` sample (`RX_VK_DUMP` with PNGs, `RX_VK_DUMP_PROGS`), to see whether a
+   paint map is among them and what it holds.
+3. Failing those, look at the game side: which CPU code reads these results, and what it decides from them.
