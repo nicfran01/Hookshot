@@ -187,3 +187,97 @@ They are added to T25's list as candidates 11 and 12.
 | `.venv/bin/python -I -B tests/run_all.py test_nn_offline` | `1 passed, 0 failed, 0 skipped`. **Met** |
 | `.venv/bin/python -I -B tests/run_all.py` | With `HOOKSHOT_VULKAN_HEADERS` / `HOOKSHOT_SPIRV_HEADERS=/opt/homebrew/include`: **323 passed, 9 failed, 9 skipped** of 341 in 721 s (T09a: 321 / 9 / 9 of 339; the 2 new checks pass). The 9 failures are exactly the baseline's 9 (`mac-test-baseline.md`). This run started before Deviation 4's `trace_report.py` fix, so `test_trace_report` was then run again on its own: `1 passed`. **Met** |
 | `git status --porcelain \| grep -c 'work/'` (`06-handoff-guide.md` §6) | `0` |
+
+## Part B, second iteration: `nn::ngc` (2026-11-11, after `BLOCKER-T13-2026-11-11.md`)
+
+**Short answer.** T13's windowed play run `titlew` crashed in `nn::ngc::ProfanityFilter::Initialize`: the SDK asks `sm:`
+for the ngc service, and aborts when `sm:` has no such service. By the user's choice (the blocker's option 1), `nn::ngc` is
+added to T10 Part B's namespaces and answered offline. **One HLE** covers the family. The run `ngc1` went through the
+difficulty screens, the opening and character customization into the scenes after it, with no crash in 460 s.
+
+Branch `task/T10-ngc-offline`, from `main` `7e0321e`. T13's branch is not merged into it.
+
+### What the SDK does (Capstone on `work/sa/image/image.bin`, verified)
+
+| Function (sdk address) | What it does |
+|---|---|
+| `ProfanityFilter()` (`0x854adb30`) | Stores the vtable and zeroes the fields; the "initialized" byte at `+9` is 0 |
+| `Initialize(void*, size_t)` (`0x854adee0`) | `Initialize(work, size, true)` (`0x854adbb0`). That checks its arguments (its own results `0x692`, `0x892`, `0x492`), makes a heap in the work buffer (`+0x28`), then under a global mutex takes a reference on a shared service object. The first reference calls `ngc::detail::CreateServiceByHipc`, **which aborts** when `sm:` fails (`titlew`'s backtrace). With no service object it returns **`0xd092`**. Only on success does it set `+9` |
+| `Finalize()` (`0x854ade20`), `~ProfanityFilter()` (`0x854add80`) | Return at once when `+9` is 0 (the destructor stores the vtable first) |
+| `MaskProfanityWordsInText(int*, char*, unsigned)` (`0x854ae760`) | Returns `0x292` at once when `+9` is not 1, and touches neither the text nor the count |
+| `SkipAtSignCheck(SkipMode)` (`0x854aed50`) | Stores the mode at `+0xc` |
+| `CountNumbers(char const*)` (`0x854ad520`) | Counts in the string: no service (**inferred**: no IPC or `ngc::detail` call in its body) |
+
+### What the game does with it (verified)
+
+- **Setup:** one function, `main` `0x82b7fb40`. It calls `Initialize(filter, this+0x6f8, 0x20000)` (`0x82b7fb64`) and
+  **ignores the result**, then tail-calls `SkipAtSignCheck(filter, 1)`. The filter is a static object, built through a
+  guarded static constructor whose destructor is registered with `__cxa_atexit` (`0x82b7fae0`-`0x82b7fb14`).
+- **Masking:** two callers (`0x82b7fee0`, `0x82b80440`). Each **zeroes the count first** (`0x82b7fec4`, `0x82b80424`),
+  masks a stack copy of the text, ignores the result and returns `count > 0`.
+- **`CountNumbers`:** one caller (`0x82b7fbc0`), which compares the count with 6.
+- **`Finalize`:** one caller (`0x82b7fb88`), a tail call.
+
+### Answer (`host/nn_offline.c`)
+
+| Function | Answer | Why |
+|---|---|---|
+| `Result nn::ngc::ProfanityFilter::Initialize(void*, unsigned long)` | **`0xd092`**, the SDK's own result for "no service object". The object and the work buffer are left untouched (`+9` stays 0, no heap). One log line: `ngc: profanity filter offline (no ngc service): Initialize answers 0xd092` | It is the only one of the 7 that reaches a service. With `+9` at 0, the SDK's own `MaskProfanityWordsInText`, `Finalize` and destructor take their "not initialized" paths: the text is unchanged and the count stays at the caller's 0, so no name counts as profane |
+
+**Not implemented, on purpose:** the constructor, destructor, `Finalize`, `SkipAtSignCheck`, `MaskProfanityWordsInText`
+and `CountNumbers` stay the SDK's own lifted code. They touch only the object or the string, which is more faithful than
+a copy. The blocker's option 1 had proposed answering all 7. The disassembly showed this is unnecessary, and 0 masked
+words comes out the same way.
+
+**Result-code findings:** `0xd092` is read from the SDK (`0x854adcfc`), not invented. The game never compares it.
+
+**Test:** `tests/test_nn_offline.py` now also checks that `Initialize` answers `0xd092` twice, leaves a 0x30-byte object
+and the work buffer as they were, and logs once. Its file check expects the 4 HLEs.
+
+### After (`ngc1`)
+
+`scripts/deck/run.sh ngc1 460 -- HOS_HANDHELD=1 RX_VK_SHOT_EVERY=300 HOS_INPUT_SCRIPT=<A at 20 s, RIGHT at 24 s, A at 26 s, then A every 2 s from 40 to 418 s>` (87 presses).
+
+- **Build:** sync, then `build.sh`; the lift took 241 s. `standalone: 535 HLE functions in host/, 273 OS-facing imports
+  stubbed`. The new name is not in the "unused" list, so it is hooked (verified: `work/t10b_build.log`).
+- **Run:**
+  - The new HLE ran once, on `SceneLowPriority` (log line 8580). That is the thread of `titlew`'s abort.
+  - Then: `grep -c "FATAL\|svcBreak"` gives 0, and no `ConnectToNamedPort` line.
+  - `trace_report.py` gives `end: no crash or fatal error logged (time limit or exit)`.
+  - 12 screenshots (looked at, not kept outside `work/`): the run reaches the dialogue scenes after customization, then
+    a loading screen at the time limit.
+- **When it is called (unknown):** in `ngc1` the filter is set up during the boot images, before present 600. In
+  `titlew` the abort came about 200 s in, after customization. Both come from the same setup function: `titlew`'s
+  backtrace frame `0x82b7fb68` is the return address of `0x82b7fb64` (verified). What triggers the setup was not traced.
+- **New in this longer run, in T10's namespaces:** 4 `nn::nfp` stubs. Each is classed **safe**; none needs an answer:
+
+  | Stub (lr) | Why it is safe (verified unless marked) |
+  |---|---|
+  | `nfp::Initialize()` (`0x83e272d4`) | The result is not read |
+  | `nfp::AttachAvailabilityChangeEvent(SystemEventType*)` (`0x83e272e0`) | Returns nothing. The event (`obj+0xb8`) is used only through `os::TryWaitSystemEvent`, `ClearSystemEvent` and `DestroySystemEvent`. `host/nn_os_sync.c` `obj_lookup` makes a fresh unsignalled event for an address it has not seen. That is T10's table answer for `nn::nfp` ("events created, never signalled") |
+  | `nfp::GetDeviceState(DeviceHandle const&)` (`0x83e29608`) | The caller calls `nfp::StopDetection` only for states 1-4; 0 skips it, which is right with no device. Reading 0 as `DeviceState_Init` is **inferred** |
+  | `nfp::Finalize()` (`0x83e27c88`) | The result is not read |
+
+- `nn::nifm::Initialize` stays **safe**, as in the first iteration.
+
+### Acceptance (Part B, on `ngc1`)
+
+| Command | Result |
+|---|---|
+| `.venv/bin/python -I scripts/trace_report.py work/runs/ngc1/hookshot_log.txt \| head -12` | `ngc1: end: no crash or fatal error logged (time limit or exit); first present: line 4649`. **Met** |
+| `… \| grep -cE "ldn\|nfp\|friends\|swkbd\|nifm\|socket\|ssl\|prepo\|nn::err"` (the task's pattern) | `5`: `nn::nifm::Initialize` and the 4 `nn::nfp` rows above, all **safe**. `grep -cE "nn::ngc"` gives `0`: `nn::ngc` is HLE'd or lifted SDK code, never a generated stub. (Adding a bare `ngc` to the pattern matches every row, because the run is named `ngc1`.) **Met** |
+| `.venv/bin/python -I -B tests/run_all.py test_nn_offline` | `1 passed, 0 failed, 0 skipped`. **Met** |
+| `.venv/bin/python -I -B tests/run_all.py` | With `HOOKSHOT_VULKAN_HEADERS` / `HOOKSHOT_SPIRV_HEADERS=/opt/homebrew/include`: **326 passed, 9 failed, 9 skipped** in 732 s. The 9 failures are exactly the baseline's 9 (`mac-test-baseline.md`: `test_program_cache_reader` TIMEOUT, `test_seed_reader`, `test_mem_gate`, `test_mem_gate_children`, `test_low_memory_notice`, `test_prof_symbols`, `test_hookshot_launch`, `test_linux_update`, `test_appimage_source_headers`). **Met** |
+| `git status --porcelain \| grep -c 'work/'` | `0` |
+
+### Ownership table
+
+`docs/plans/tasks/T10-offline-stubs.md` "Ownership of traced calls":
+- The T10 Part B row now also lists `nn::ngc`.
+- A new row covers the guest SDK's own code asking `sm:` for a service the runtime does not have. `trace_report.py`
+  cannot list such a stop, and its owner is the owner of the SDK namespace that asked.
+
+### Upstream candidate
+
+The `nn::ngc` answer is generic: any game that sets up the SDK's profanity filter aborts the same way under the runtime's
+empty `sm:`. It belongs with T25's candidate 12, the offline answers.

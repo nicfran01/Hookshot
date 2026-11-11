@@ -1,6 +1,8 @@
 """(raiders) The offline answers (host/nn_offline.c), family by family, compiled with stand-in helpers (no game files):
 nn::prepo's GetOverSaveFrequencyLimitEvent gives one event, made once, manual-clear and never signalled, not null;
-AddInternetConnectionStatus and RequestImmediateTransmission succeed and touch nothing. Also: every HLE in the file has a
+AddInternetConnectionStatus and RequestImmediateTransmission succeed and touch nothing. nn::ngc's
+ProfanityFilter::Initialize answers the SDK's "no ngc service" result, leaves the object and its work buffer as they
+were (so the SDK's own Mask, Finalize and destructor take their "not initialized" paths) and logs once. Also: every HLE in the file has a
 comment above it, and the lift's list of implemented functions (nx2/standalone.py) finds every one.
 
     python -I -B tests/test_nn_offline.py [--cc gcc]
@@ -20,6 +22,7 @@ SOURCE = ROOT / "host" / "nn_offline.c"
 EVENT = "_ZN2nn5prepo30GetOverSaveFrequencyLimitEventEv"
 STATUS = "_ZN2nn5prepo27AddInternetConnectionStatusEPNS0_10PlayReportEPKcS4_S4_"
 SEND = "_ZN2nn5prepo28RequestImmediateTransmissionEv"
+NGC_INIT = "_ZN2nn3ngc15ProfanityFilter10InitializeEPvm"
 
 HOS_H = r'''
 #pragma once
@@ -30,6 +33,7 @@ typedef struct { uint64_t x[32]; } Ctx;
 #define RET(v) (c->x[0] = (uint64_t)(v))
 #define GP(a) ((void *)(uintptr_t)(a))
 uint64_t hos_sys_alloc(uint64_t size, uint64_t align);
+void hos_log(const char *fmt, ...);
 '''
 WINDOWS_H = r'''
 #pragma once
@@ -38,6 +42,8 @@ typedef int SRWLOCK;
 static int locked;
 static inline void AcquireSRWLockExclusive(SRWLOCK *l) { (void)l; locked++; }
 static inline void ReleaseSRWLockExclusive(SRWLOCK *l) { (void)l; locked--; }
+typedef long LONG;
+static inline LONG InterlockedExchange(volatile LONG *p, LONG v) { LONG o = *p; *p = v; return o; }
 '''
 FIXTURE = r'''
 #include <stdio.h>
@@ -45,7 +51,8 @@ FIXTURE = r'''
 #include <string.h>
 #include "nn_offline.c"
 
-static int allocs, inits, last_clear = -1;
+static int allocs, inits, last_clear = -1, logs;
+void hos_log(const char *fmt, ...) { (void)fmt; logs++; }
 static uint64_t last_key, last_size;
 uint64_t hos_sys_alloc(uint64_t size, uint64_t align) {
     allocs++, last_size = size;
@@ -80,6 +87,16 @@ int main(void) {
     /* RequestImmediateTransmission(): success */
     CHECK(call(imp_SEND, 0, 0, 0, 0) == 0);
     CHECK(allocs == 1);
+    /* ProfanityFilter::Initialize(void*, size_t): 0xd092 (the SDK's own "no ngc service"); the object (+9 is its
+       "initialized" byte) and the work buffer stay as they were; one log line however often it is called */
+    unsigned char filter[0x30], work[256];
+    memset(filter, 0, sizeof filter);
+    memset(work, 0x44, sizeof work);
+    CHECK(call(imp_NGC_INIT, (uint64_t)(uintptr_t)filter, (uint64_t)(uintptr_t)work, 0x20000, 0) == 0xd092);
+    CHECK(call(imp_NGC_INIT, (uint64_t)(uintptr_t)filter, (uint64_t)(uintptr_t)work, 0x20000, 0) == 0xd092);
+    for (unsigned i = 0; i < sizeof filter; i++) CHECK(filter[i] == 0);
+    for (unsigned i = 0; i < sizeof work; i++) CHECK(work[i] == 0x44);
+    CHECK(logs == 1 && allocs == 1);
     printf("ok\n");
     return 0;
 }
@@ -99,7 +116,8 @@ def main():
 
     source = SOURCE.read_text(encoding="utf-8")
     names = re.findall(r"^HLE\((\w+)\)", source, re.M)
-    check(set(names) == {EVENT, STATUS, SEND}, "the file implements the traced nn::prepo family (%d HLEs)" % len(names))
+    check(set(names) == {EVENT, STATUS, SEND, NGC_INIT}, "the file implements the traced nn::prepo family and nn::ngc's "
+          "Initialize (%d HLEs)" % len(names))
     lines = source.split("\n")
     for i, line in enumerate(lines):
         if line.startswith("HLE("):
@@ -118,7 +136,7 @@ def main():
         (folder / "windows.h").write_text(WINDOWS_H, encoding="utf-8")
         (folder / "nn_offline.c").write_text(source, encoding="utf-8")
         fixture = FIXTURE.replace("imp_EVENT", "imp_" + EVENT).replace("imp_STATUS", "imp_" + STATUS).replace(
-            "imp_SEND", "imp_" + SEND)
+            "imp_SEND", "imp_" + SEND).replace("imp_NGC_INIT", "imp_" + NGC_INIT)
         (folder / "fixture.c").write_text(fixture, encoding="utf-8")
         exe = folder / "offline_test"
         b = subprocess.run([a.cc, "-std=c11", "-D_ISOC11_SOURCE", "-Wall", "-Werror", "-Wno-unused-function", "-I", str(folder),
@@ -126,7 +144,7 @@ def main():
         check(b.returncode == 0, "nn_offline.c compiles with the stand-in helpers" + (": " + b.stderr if b.returncode else ""))
         if b.returncode == 0:
             r = subprocess.run([str(exe)], capture_output=True, text=True)
-            check(r.returncode == 0 and r.stdout.strip() == "ok", "nn::prepo answers (%s)" % r.stdout.strip())
+            check(r.returncode == 0 and r.stdout.strip() == "ok", "nn::prepo and nn::ngc answers (%s)" % r.stdout.strip())
     if failures:
         raise SystemExit("%d failed" % len(failures))
 
