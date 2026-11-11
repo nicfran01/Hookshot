@@ -259,6 +259,9 @@ static const MkwVkRenderer *load_vulkan(const char *dll) {
         hos_log("rx: the Vulkan back end did not start: WebGPU");
         return NULL;
     }
+    /* (raiders) the game, before its start translates any program: Ocarina's menu pages, visual workaround and default program
+       skip are its own (gpu/vk/vk_game.h) */
+    if (r->option_set) r->option_set(HOS_OPT_GAME_OOT, hos_game_is("oot"));
     return r;
 }
 

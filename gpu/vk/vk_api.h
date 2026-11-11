@@ -17,6 +17,10 @@ extern "C" {
 
 #define MKWVK_API_VERSION 13
 enum { HOS_OPT_CHEAT_HEARTS = 32, HOS_OPT_CHEAT_FLIGHT, HOS_OPT_CHEAT_ACTION, HOS_OPT_CHEAT_CAMERA };
+/* (raiders) option_set(HOS_OPT_GAME_OOT, 1 or 0) from the host before the renderer starts: whether the game is Ocarina of Time
+   (its debug tools, visual workaround and default program skip: gpu/vk/vk_game.h). Not kept in the options file; a host that
+   does not say leaves it 1, upstream's game. An option id, not a field: MKWVK_API_VERSION stays */
+enum { HOS_OPT_GAME_OOT = 4089 };
 /* (hookshot) the Motion page's rows (host/pad_sdl.c reads them, vk_replay.cpp's option answers them): Motion controls on
    or off, the horizontal's and the vertical's sensitivity in percent, each turned around, and the deadzone (0 to 2) */
 enum { HOS_OPT_GYRO = 18, HOS_OPT_GYRO_SENS_X, HOS_OPT_GYRO_INV_X, HOS_OPT_GYRO_INV_Y, HOS_OPT_GYRO_SENS_Y, HOS_OPT_GYRO_DEADZONE };

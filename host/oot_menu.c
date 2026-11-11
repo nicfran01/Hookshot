@@ -160,6 +160,7 @@ static SRWLOCK pending_lock = SRWLOCK_INIT;
 static struct { uint64_t screen, pane, lr; int set; } pending;
 static void focus_locked(uint64_t screen, uint64_t pane, uint64_t lr);
 void hos_oot_menu_focus(Ctx *c, uint64_t screen, uint64_t pane, uint64_t lr) {
+    if (!hos_game_is("oot")) return;   /* (raiders) Ocarina's guest addresses: host/hos_game.h */
     (void)c;
     if (trace < 0) trace = getenv("HOS_MENU_TRACE") != NULL;
     if (mouse_owner == GetCurrentThreadId()) {   /* (inside mouse_tick's setter, on its thread: the lock is this thread's) */
@@ -756,6 +757,7 @@ static Seen *screen_seen(uint64_t screen, int64_t now) {
 }
 
 void hos_oot_menu_tick(Ctx *c, uint64_t screen) {
+    if (!hos_game_is("oot")) return;   /* (raiders) Ocarina's guest addresses: host/hos_game.h */
     if (!screen) return;
     if (trace < 0) trace = getenv("HOS_MENU_TRACE") != NULL;
     const int64_t now = hos_now_ns();

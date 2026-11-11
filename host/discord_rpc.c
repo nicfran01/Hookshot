@@ -16,6 +16,7 @@
    Handshake 0, Frame 1, Close 2, Ping 3, Pong 4. The handshake {"v":1,"client_id":...} is answered by a Ready frame; a
    SET_ACTIVITY frame by a frame; a Ping is echoed as a Pong. */
 #include "hos_paths.h"   /* (first: hos_game_path_a, and windows.h on Windows) */
+#include "hos_game.h"    /* (raiders) the status is Ocarina's */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -310,6 +311,7 @@ static void *presence_thread(void *arg) {
 
 /* hos_main.c, once the game starts (not for --prepare-shaders). HOS_DISCORD=0: no thread at all */
 void hos_discord_start(void) {
+    if (!hos_game_is("oot")) return;   /* (raiders) the status names Ocarina of Time and Hookshot's application */
     const char *e = getenv("HOS_DISCORD");
     if (e && !atoi(e)) return;
 #ifdef _WIN32
