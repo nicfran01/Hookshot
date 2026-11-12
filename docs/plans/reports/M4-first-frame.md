@@ -732,3 +732,40 @@ processing) stays with T18.
   - That run did not reach a delay effect, so the fix itself is **not yet verified**: it needs the room transition
     played again.
   - The game wrote its own save during the run; yours (`55ce2485…`) was put back.
+
+---
+
+# Session 5, continued: your second play-through (`prologue3`)
+
+Same command as `prologue2`, on the build with the freeze fix (`18218a6`), from your save `55ce2485…`.
+
+## Problem 9: fixed (verified)
+
+- **The delay effect now comes and goes:**
+  - the game added it (log line 28944, `AddDelay`, still unimplemented and harmless);
+  - it then **removed** it (line 39166, `RemoveDelay`, called from `0x8358278c`). In `prologue2` the game never got
+    past `IsDelayRemovable`.
+- **The game kept going:** 99 frame-count lines (about 11,900 presents) came after the removal, with no device loss.
+- **You beat a level.** The game saved at 22:55:31: 5,554 B, md5 `83abe43e…`. It is left in place, with a copy in
+  `~/raiders/work/t13s5_save_prologue3/`.
+- The game was stopped at 22:57, after the save and after the log was fetched.
+
+## What you saw (open, recorded for later tasks)
+
+| # | What | Notes |
+|---|---|---|
+| 10 | **Animations play slowly**; the game sometimes slows down, then plays faster after an area reloads | The frame rate in 3D frames (over 300 draws) swung between 10.6 and 60.3 fps over the run (e.g. 20.3-27.2 in long stretches). At the slow points the replay's submit time was 38-43 ms a frame, **29-31 ms of it descriptors**, the cost already noted for T22 (**verified** from the `replay time` lines). That the game's animation follows the frame rate (slow motion below 60 fps) is **inferred**. That the descriptor cost grows within an area and drops at a reload is **inferred**, not measured |
+| 11 | **Gear menu: flickering icons cover the whole screen** | The UI flat-box/flicker class (problem 4), at its worst so far |
+| 12 | **After leaving the gear menu, the scene is brighter**; **once, after a level and the gear menu, the floor went invisible under you** | State left behind by the menu's rendering: render targets, exposure or textures the 3D pass reuses (**unknown**). The next step is a frame dump (`RX_VK_DUMP`) before and after the menu at one spot |
+| 13 | **Nets flicker in and out** | Thin alpha-tested geometry; whether it is a draw left out (`RX_VK_PIPE_SKIP=0` would show) or a depth/alpha problem is **unknown** |
+| 14 | **Short loading screens flicker between black and 3D** | Presentation of the loading screen against the scene still being drawn; **unknown** |
+| — | Sound effects missing (T18), UI flicker (problem 4), 3D flicker under blur | As in `prologue2` |
+
+## Gate 1, updated
+
+- **The title screen:** booting from this save to check for the title screen is the next step. Your save is past a
+  level, but whether the prologue is over is **unknown**.
+- **Problem 7**, the hang: unchanged (`RX_VK_SKIP_PROG=cffdbb02c4dfbd39` still used).
+- **Problems 3-5 and 10-14:** for the follow-up tasks:
+  - 10 is mostly T22 (descriptor cost);
+  - 11-14 are rendering problems for T13's remaining work or T17.
