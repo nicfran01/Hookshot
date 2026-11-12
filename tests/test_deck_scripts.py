@@ -3,7 +3,9 @@ image (work/sa/image/image.bin, the one nx2/make_game.py ships), not the emulato
 its three steps (/usr/bin/time -v: wall time and peak memory) and stops at the first that fails; run.sh --net-check samples
 the game's sockets and its classifier (awk) fails a non-loopback peer and lists Unix sockets. The run passes --args
 words to the executable after its own arguments and notes the peak resident set (T12: --prepare-shaders), checked by running
-the Deck side of run.sh on a stand-in executable. bash -n on each script where bash exists. No Deck, no game files.
+the Deck side of run.sh on a stand-in executable. steam_launch.sh (T15), a Steam shortcut's target, starts the same image
+with its switches and, with --raw-deck-pad, takes only the Deck's own controller off Steam's SDL ignore list. bash -n on
+each script where bash exists. No Deck, no game files.
 
     python -I -B tests/test_deck_scripts.py
 """
@@ -77,6 +79,51 @@ class DeckScriptTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             args = [l for l in (root / "work/runs/t2/hookshot_log.txt").read_text().splitlines() if l.startswith("arg ")]
             self.assertEqual(len(args), 5, args)
+
+    # (raiders, T15) steam_launch.sh: a shortcut's run, on the Deck, as run.sh starts the game
+    def test_the_steam_launch_runs_like_run(self):
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("no bash")
+        script = str(DECK / "steam_launch.sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            root, home = Path(tmp, "r"), Path(tmp, "home")
+            exe = root / "work" / "sa" / "build" / "hookshot"
+            exe.parent.mkdir(parents=True)
+            home.mkdir()
+            exe.write_text('#!/bin/sh\nfor a in "$@"; do echo "arg $a"; done\necho "env $HOS_ENV_FILE"\n'
+                           'echo "ignore $SDL_GAMECONTROLLER_IGNORE_DEVICES"\n')
+            exe.chmod(0o755)
+            env = dict(os.environ, HOME=str(home), DECK_ROOT=str(root), SteamAppId="0", SDL_GAMECONTROLLER_IGNORE_DEVICES="0x28de/0x1205")
+            for argv in ([], ["../x"], ["g1", "not-a-switch"]):
+                r = subprocess.run([bash, script] + argv, capture_output=True, text=True, env=env, timeout=30)
+                self.assertEqual(r.returncode, 2, (argv, r.stderr))
+            r = subprocess.run([bash, script, "gyro_b", "B=2"], capture_output=True, text=True, env=env, timeout=30)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = root / "work" / "runs" / "gyro_b"
+            log = (out / "hookshot_log.txt").read_text().splitlines()
+            args = [l[4:] for l in log if l.startswith("arg ")]
+            self.assertEqual(args, [str(root / "work/sa/image/image.bin"), "--romfs", str(root / "dump/romfs"), "--user",
+                                    str(home / ".local/share/raiders-recomp")])
+            self.assertIn("env " + str(out / "env.txt"), log)
+            switches = (out / "env.txt").read_text().splitlines()
+            for want in ("HOS_MOTION_DEBUG=1", "HOS_HANDHELD=1", "HOOKSHOT_NO_UPDATE_CHECK=1", "B=2"):
+                self.assertIn(want, switches)
+            seen = (out / "steam_env.txt").read_text().splitlines()
+            self.assertEqual(seen, ["SDL_GAMECONTROLLER_IGNORE_DEVICES=0x28de/0x1205", "SteamAppId=0"])
+            self.assertIn("ignore 0x28de/0x1205", log)   # (Steam's list as it was, without --raw-deck-pad)
+            # --raw-deck-pad: the Deck's own controller off Steam's list (any case), the rest kept in order
+            env["SDL_GAMECONTROLLER_IGNORE_DEVICES"] = "0x28de/0x1204,0x28DE/0x1205,0x28de/0x1205,0x054c/0x0ce6"
+            r = subprocess.run([bash, script, "gyro_d", "--raw-deck-pad", "C=3"], capture_output=True, text=True, env=env,
+                               timeout=30)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = root / "work" / "runs" / "gyro_d"
+            log = (out / "hookshot_log.txt").read_text().splitlines()
+            self.assertIn("ignore 0x28de/0x1204,0x054c/0x0ce6", log)
+            self.assertIn("C=3", (out / "env.txt").read_text().splitlines())
+            self.assertEqual(len([l for l in log if l.startswith("arg ")]), 5)
+        run = (DECK / "run.sh").read_text(encoding="utf-8")
+        self.assertIn('args=("$R/work/sa/image/image.bin" --romfs "$R/dump/romfs")', run)   # (the same image as run.sh's)
 
     def test_the_window_finds_the_wayland_desktop(self):   # (raiders, T13: a windowed run started over SSH)
         run = (DECK / "run.sh").read_text(encoding="utf-8")
