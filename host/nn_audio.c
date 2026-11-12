@@ -1589,6 +1589,13 @@ HLE(_ZN2nn5audio22IsBufferMixerRemovableEPKNS0_15BufferMixerTypeE) { RET(1); }
 HLE(_ZN2nn5audio22IsI3dl2ReverbRemovableEPKNS0_15I3dl2ReverbTypeE) { RET(1); }
 HLE(_ZN2nn5audio23IsBiquadFilterRemovableEPKNS0_16BiquadFilterTypeE) { RET(1); }
 HLE(_ZN2nn5audio23IsLightLimiterRemovableEPKNS0_16LightLimiterTypeE) { RET(1); }
+/* (raiders) The rest of the "removable" answers. Splatoon Raiders' effect wrapper (0x8357f720 in its build) disables an
+   effect, asks whether it is removable, and removes it only on yes, else tries again later: the unimplemented import's 0
+   kept a delay effect forever, and the loading screen after a cutscene never ended (M4-first-frame.md, problem 9). Its
+   RemoveDelay caller discards the result, so the effects stay as the generic stub has them (T18 owns the rest) */
+HLE(_ZN2nn5audio16IsDelayRemovableEPKNS0_9DelayTypeE) { RET(1); }
+HLE(_ZN2nn5audio21IsCompressorRemovableEPKNS0_14CompressorTypeE) { RET(1); }
+HLE(_ZN2nn5audio18IsCaptureRemovableEPKNS0_11CaptureTypeE) { RET(1); }
 
 /* ---- the light limiter on the final mix: input gain, then a peak limiter at the threshold, then output gain ---- */
 HLE(_ZN2nn5audio24SetLightLimiterInputGainEPNS0_16LightLimiterTypeEf) { lim_in = farg(c, 0); AUT("audio: limiter input gain %.3f", lim_in); }

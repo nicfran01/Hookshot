@@ -709,3 +709,26 @@ on the occlusion-fix build: swapchain 1280x718, mailbox.
 1. **Problem 9 (T18):** the loading-screen freeze, then playing on to the end of the prologue for the title save.
 2. **Problem 7**, the hang: unchanged (the switch is still needed).
 3. **Problems 3-5:** UI boxes and flicker, 3D flicker under blur, smeared foliage.
+
+## Problem 9: the freeze fix, done here at your request
+
+You asked for the freeze alone to be fixed in T13, ahead of T18. The rest of the audio work (sound effects, effect
+processing) stays with T18.
+
+- **The change:** `host/nn_audio.c`, after `IsLightLimiterRemovable`, marked `(raiders)`: `IsDelayRemovable`,
+  `IsCompressorRemovable` and `IsCaptureRemovable` now answer 1, as the host already does for the other effect types.
+  - Only `IsDelayRemovable` was met in a run (**verified**).
+  - The other two are imported, have no implementation, and would stop the same generic wrapper the same way
+    (**inferred**).
+- **Why nothing else is needed (verified):** the game's call to `RemoveDelay` (`0x83582788`, through the stub at
+  `0x83f71050`) ignores its result (the function then returns 1). So the unimplemented `RemoveDelay`, which does
+  nothing and answers 0, is enough.
+- **Build:** the Deck build gives `compiled in 4s, 0 failed`, `build (lift): 190 s`.
+- **Tests:** the six tests that read `nn_audio.c` (`tests/test_audio_*.py`) pass. The full suite was not re-run.
+- **Boot check (`boot9`):** headless from your new save, A presses, 200 s.
+  - The save boots into a story scene on a pier, then free movement there: no title screen, so the game treats the save
+    as mid-story.
+  - No device loss.
+  - That run did not reach a delay effect, so the fix itself is **not yet verified**: it needs the room transition
+    played again.
+  - The game wrote its own save during the run; yours (`55ce2485…`) was put back.
