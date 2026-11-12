@@ -829,8 +829,11 @@ Run `titlew2` was windowed (1280x718, mailbox, sound on), from your `prologue3` 
   - It is your progress, so it is left in place, with a copy in `~/raiders/work/t13s5_save_titlew2/`.
   - The save from before it (`83abe43e…`) stays in `~/raiders/work/t13s5_save_prologue3/`.
 
-**Gate 1 is passed.** T13's scope is done. Its acceptance criteria are as in the session 5 table, except the full test
-suite, which has not been re-run since the last two fixes.
+**Gate 1 is passed.** T13's scope is done, and its acceptance criteria are as in the session 5 table.
+
+**Tests, final:** the full suite on `109d154` (`HOOKSHOT_VULKAN_HEADERS`/`HOOKSHOT_SPIRV_HEADERS` set to
+`/opt/homebrew/include`, `--jobs 4`) gave **326 passed, 9 failed, 9 skipped** in 835 s. The 9 failures are the same set
+as session 4's (compared by name), the baseline's 9.
 
 **Carried to later tasks:**
 - T14: the gameplay hang (problem 7, program `cffdbb02c4dfbd39`; geometry-stage work or its own task).
