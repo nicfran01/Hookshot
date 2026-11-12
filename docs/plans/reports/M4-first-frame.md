@@ -816,3 +816,25 @@ Known differences to expect, which are not Gate 1's:
 - the UI flicker class (problems 3-4, 11);
 - problems 10-14 from the play-through;
 - the gameplay hang (problem 7), which still needs its switch in play.
+
+## Gate 1: passed (your check, 2026-11-11)
+
+Run `titlew2` was windowed (1280x718, mailbox, sound on), from your `prologue3` save, with no program left out.
+
+- **Your check:** the title screen matches the console in layout, colours and motion.
+  - When it first loaded, some UI elements flickered (the UI flicker class, problems 3-4 and 11).
+  - Pressing ZL+ZR loads the game.
+- **The log (verified):** no device loss over 11,640 presents.
+- **The save:** the game wrote it at 23:09:02 after the button combo (5,554 B, md5 `d9dfb4bb…`).
+  - It is your progress, so it is left in place, with a copy in `~/raiders/work/t13s5_save_titlew2/`.
+  - The save from before it (`83abe43e…`) stays in `~/raiders/work/t13s5_save_prologue3/`.
+
+**Gate 1 is passed.** T13's scope is done. Its acceptance criteria are as in the session 5 table, except the full test
+suite, which has not been re-run since the last two fixes.
+
+**Carried to later tasks:**
+- T14: the gameplay hang (problem 7, program `cffdbb02c4dfbd39`; geometry-stage work or its own task).
+- T18: sound effects (problem 9's rest).
+- T22: frame rate and descriptor cost (problem 10).
+- Rendering follow-ups, problems 3-5 and 11-14: UI flicker and boxes, the brighter scene and invisible floor after the
+  gear menu, nets, loading screens.
