@@ -462,9 +462,10 @@ void dump_write() {
         size_t nz = 0;
         char line[1200];
         int k = 0;
-        for (size_t i = 0; i < nw; i++) nz += w[i] != 0;
-        k += snprintf(line + k, sizeof line - k, "vk: dump buffer %s: %llu bytes, %zu of %zu words not zero:", it.what.c_str(),
-                      (unsigned long long)it.n, nz, nw);
+        uint64_t h = 0xcbf29ce484222325ull;   // ((raiders) FNV-1a over the words: before and after a dispatch compared whole)
+        for (size_t i = 0; i < nw; i++) nz += w[i] != 0, h = (h ^ w[i]) * 0x100000001b3ull;
+        k += snprintf(line + k, sizeof line - k, "vk: dump buffer %s: %llu bytes, %zu of %zu words not zero: (hash %016llx)",
+                      it.what.c_str(), (unsigned long long)it.n, nz, nw, (unsigned long long)h);
         int shown = 0;
         for (size_t i = 0; i < nw && shown < 24 && k < 1100; i++)
             if (w[i]) k += snprintf(line + k, sizeof line - k, " [%zu]=%#x", i, w[i]), shown++;

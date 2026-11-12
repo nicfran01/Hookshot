@@ -47,6 +47,7 @@
 #include "vk_texture.h"
 #include "movie_upscale_policy.h"
 #include "skip_code.h"
+#include "vk_occlusion.h"     // (raiders) samples-passed reports from occlusion queries
 
 #include "shaders/clear_f_frag_spv.h"
 #include "shaders/clear_i_frag_spv.h"
@@ -2856,6 +2857,23 @@ void build_descriptors(const NvnState& s, const Program& p) {
                                  ns, n_desc, k, (unsigned)d.cbuf_index, off, d.is_written ? " written" : "", (unsigned long long)addr,
                                  (unsigned long long)size, b ? "yes" : "NO");
                     }
+                }
+                {   // ((raiders) RX_VK_WATCH_RANGE=<lo>:<hi>: storage bindings overlapping it, the program, whether it writes and
+                    // how much of it goes back to guest memory; 400 lines. T13: what fills the game's per-frame readbacks)
+                    static const std::pair<uint64_t, uint64_t> range = [] {
+                        unsigned long long lo = 0, hi = 0;
+                        if (const char* e = getenv("RX_VK_WATCH_RANGE")) sscanf(e, "%llx:%llx", &lo, &hi);
+                        return std::pair<uint64_t, uint64_t>{lo, hi};
+                    }();
+                    static std::atomic<int> logged{0};
+                    if (range.second && addr && base < range.second && base + std::max<uint64_t>(n, 1) > range.first &&
+                        logged.fetch_add(1) < 400)
+                        logf("vk: watch range storage binding: program %016llx stage %d entry %u (c%u+%#x, %u) %#llx +%#llx (size word "
+                             "%#llx) %s%s%s", (unsigned long long)p.key, ns, (unsigned)k, (unsigned)d.cbuf_index,
+                             (unsigned)d.cbuf_offset, (unsigned)d.count, (unsigned long long)addr, (unsigned long long)n,
+                             (unsigned long long)size, d.is_written ? "written" : "read only",
+                             d.is_written ? (bare ? ", bare: 64 bytes written back" : ", written back whole") : "",
+                             b ? "" : ", NOT bound");
                 }
                 // (census: every single descriptor, and table entries that hold something, with where they came from)
                 if (d.count == 1 || addr) {
@@ -6213,6 +6231,8 @@ void draw(VkCommandBuffer cmd, NvnState& s, const DrawArgs& d) {
         }
     }
     StatsQuery stats_query(cmd, p.key, d);   // (EvilOOT, RX_VK_DRAW_STATS)
+    OccQuery occ_query(cmd);   // ((raiders) a samples-passed bracket's query around the draw command: vk_occlusion.h. After
+                               // stats_query: it ends first, before anything that one does at its end)
     if (stats_frame_now() && stats_prog_wanted(p.key)) {   // (and the wanted programs' buffers: a mesh draw's stages, fragment)
         for (const int stage : {6, 7, 1}) stats_dump_stage(p.key, s, stage);
         // (and as the GPU holds them, after it: RX_VK_GPU_DUMP=1 only; its bindings can sync a pool's mirror mid-frame, and

@@ -49,6 +49,7 @@
 #include "vk_present_trace.h"
 
 #include "vk_internal.h"
+#include "vk_occlusion.h"   // (raiders) samples-passed reports from occlusion queries
 #include "vk_work.h"   // (after the others: counts the commands that do GPU work, for full_barrier)
 
 namespace mkwvk {
@@ -778,6 +779,11 @@ void replay(VkCommandBuffer& cmd, NvnState& s, const uint8_t* p, const uint8_t* 
             break;
         }
         case NOP_REPORT_COUNTER: {
+            {   // ((raiders) a samples-passed report while a bracket counts: the sum of its occlusion queries, written by the
+                // collector once the GPU has them (vk_occlusion.h); else as before)
+                const auto c = payload<nvn_p_counter>(a, avail);
+                if ((uint32_t)c.type == NVN_COUNTER_TYPE_SAMPLES_PASSED && occ_report(s, c.addr, dry)) break;
+            }
             if (worker) break;   // (written by the dry pass, in stream order)
             const auto c = payload<nvn_p_counter>(a, avail);
             const bool flag_written = (c.type & NVN_COUNTER_WRITTEN) != 0;   // (a clear flag: nvn_native.c wrote it as it was recorded)
@@ -819,7 +825,10 @@ void replay(VkCommandBuffer& cmd, NvnState& s, const uint8_t* p, const uint8_t* 
         }
         case NOP_RESET_COUNTER: {
             const auto c = payload<nvn_p_counter>(a, avail);
-            if (c.type == NVN_COUNTER_TYPE_SAMPLES_PASSED) s.samples_passed = 0;
+            if (c.type == NVN_COUNTER_TYPE_SAMPLES_PASSED) {
+                if (occ_real()) occ_reset(s);   // ((raiders) a bracket of occlusion queries begins: vk_occlusion.h)
+                else s.samples_passed = 0;
+            }
             break;
         }
         case NOP_COPY_B2B: {
@@ -1186,17 +1195,20 @@ void replay(VkCommandBuffer& cmd, NvnState& s, const uint8_t* p, const uint8_t* 
             break;
         case NOP_DRAW: {
             const auto d = payload<nvn_p_draw>(a, avail);
+            const int64_t occ_q = occ_before_draw(s, dry, worker);   // ((raiders) its occlusion query: vk_occlusion.h)
             if (s.render_enabled && !s.raster_discard && !dry) {
                 DrawArgs da;
                 da.prim = d.prim, da.first = d.first, da.count = d.count;
                 da.base_instance = d.base_instance, da.instances = d.instances;
                 draw(cmd, s, da);
             }
-            s.samples_passed += 16;
+            occ_after_draw(occ_q, dry);
+            if (!occ_real()) s.samples_passed += 16;   // ((raiders) else samples_passed holds the queries' numbers)
             break;
         }
         case NOP_DRAW_IDX: {
             const auto d = payload<nvn_p_draw_idx>(a, avail);
+            const int64_t occ_q = occ_before_draw(s, dry, worker);   // ((raiders) its occlusion query: vk_occlusion.h)
             if (s.render_enabled && !s.raster_discard && !dry) {
                 DrawArgs da;
                 da.prim = d.prim, da.indexed = true, da.itype = d.itype, da.count = d.count;
@@ -1204,11 +1216,13 @@ void replay(VkCommandBuffer& cmd, NvnState& s, const uint8_t* p, const uint8_t* 
                 da.ibuf = d.ibuf;
                 draw(cmd, s, da);
             }
-            s.samples_passed += 16;
+            occ_after_draw(occ_q, dry);
+            if (!occ_real()) s.samples_passed += 16;   // ((raiders) else samples_passed holds the queries' numbers)
             break;
         }
         case NOP_DRAW_INDIRECT: {
             const auto d = payload<nvn_p_draw_indirect>(a, avail);
+            const int64_t occ_q = occ_before_draw(s, dry, worker);   // ((raiders) its occlusion query: vk_occlusion.h)
             if (s.render_enabled && !s.raster_discard && !dry) {
                 DrawArgs da;
                 da.prim = d.prim, da.indexed = d.indexed != 0, da.itype = d.itype;
@@ -1216,7 +1230,8 @@ void replay(VkCommandBuffer& cmd, NvnState& s, const uint8_t* p, const uint8_t* 
                 da.ibuf = d.ibuf;
                 draw(cmd, s, da);
             }
-            s.samples_passed += 16;
+            occ_after_draw(occ_q, dry);
+            if (!occ_real()) s.samples_passed += 16;   // ((raiders) else samples_passed holds the queries' numbers)
             break;
         }
         case NOP_DRAW_MESH: {
@@ -1225,6 +1240,7 @@ void replay(VkCommandBuffer& cmd, NvnState& s, const uint8_t* p, const uint8_t* 
             if (logged_mesh++ < 8)
                 logf("vk: mesh draw kind %d: %d %d %d, indirect %#llx count %#llx max %d stride %d", d.kind, d.x, d.y,
                      d.z, (unsigned long long)d.indirect, (unsigned long long)d.count_addr, d.max, d.stride);
+            const int64_t occ_q = occ_before_draw(s, dry, worker);   // ((raiders) its occlusion query: vk_occlusion.h)
             if (s.render_enabled && !s.raster_discard && !dry) {
                 DrawArgs da;
                 da.mesh = true;
@@ -1235,7 +1251,8 @@ void replay(VkCommandBuffer& cmd, NvnState& s, const uint8_t* p, const uint8_t* 
                 da.indirect = d.indirect, da.count_addr = d.count_addr, da.max = d.max, da.stride = d.stride;
                 draw(cmd, s, da);
             }
-            s.samples_passed += 16;
+            occ_after_draw(occ_q, dry);
+            if (!occ_real()) s.samples_passed += 16;   // ((raiders) else samples_passed holds the queries' numbers)
             break;
         }
         case NOP_DISPATCH: {
@@ -1388,6 +1405,7 @@ std::recursive_mutex par_mu;
 const uint8_t* replay_handle(VkCommandBuffer& cmd, const uint8_t* h, bool may_stop = false) {
     const int threads = par_threads();
     NvnState& state = *cur_state;
+    occ_sync(state);   // ((raiders) its occlusion query numbers after those handed out before: vk_occlusion.h)
     suspend_at = nullptr;
     if (threads < 2 || !rec_cur || dump_on() || gprof_on() || probe_serial()) {
         suspend_ok = may_stop;
@@ -2255,9 +2273,21 @@ void invalidate(uint64_t gpu, uint64_t size) {
         if (from >= 0 && presents_now >= from && n++ < 300) {
             uint32_t w[8]{};
             host->gpu_read(gpu, w, sizeof w);
-            logf("vk: readback %lld %#llx +%#llx: fence %llu done %llu behind %d | %08x %08x %08x %08x %08x %08x %08x %08x",
+            // ((raiders) T13: the whole range's FNV-1a (as RX_VK_DUMP_SSBO's "hash") and its write-back state, to tell
+            // whether the GPU's results reached guest memory before the CPU reads them)
+            uint64_t h = 0xcbf29ce484222325ull;
+            bool ever = false;
+            const uint64_t wbv = memory_writeback_value(host->gpu_guest(gpu), size, &ever);
+            if (size <= (1u << 20)) {
+                std::vector<uint32_t> all((size_t)(size / 4));
+                if (!all.empty() && host->gpu_read(gpu, all.data(), all.size() * 4))
+                    for (uint32_t v : all) h = (h ^ v) * 0x100000001b3ull;
+            }
+            logf("vk: readback %lld %#llx +%#llx: fence %llu done %llu behind %d | %08x %08x %08x %08x %08x %08x %08x %08x | "
+                 "hash %016llx, write-back %s (value %llu)",
                  (long long)presents_now, (unsigned long long)gpu, (unsigned long long)size, (unsigned long long)fence(),
-                 (unsigned long long)completed(), (int)replay_behind(), w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]);
+                 (unsigned long long)completed(), (int)replay_behind(), w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7],
+                 (unsigned long long)h, ever ? "seen" : "never", (unsigned long long)wbv);
         }
     }
     // (EvilBoyce) GPU results in buffers: the CPU reads them once the submission that writes them back is done. The game
