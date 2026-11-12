@@ -769,3 +769,50 @@ Same command as `prologue2`, on the build with the freeze fix (`18218a6`), from 
 - **Problems 3-5 and 10-14:** for the follow-up tasks:
   - 10 is mostly T22 (descriptor cost);
   - 11-14 are rendering problems for T13's remaining work or T17.
+
+---
+
+# Session 5, continued: the title screen
+
+**Short answer: the title screen is on screen headless.** It shows from a boot of your `prologue3` save (after the
+level you beat) and matches your description of the console:
+- the logo at the top left;
+- the version (1.8.0) at the top right;
+- "press ZL+ZR" at the right;
+- the copyright line at the bottom left.
+
+## Runs
+
+| Run | Switches | Result |
+|---|---|---|
+| `title8` | your save `83abe43e…`, no input, `RX_VK_SKIP_PROG=cffdbb02c4dfbd39`, 240 s | The title from about present 1200 (shot `vk_001200`) to the end (`vk_014100`), with the platform scene behind it. 60 fps with ~1,063 draws a frame from present 3000 on. No device loss |
+| `titlegate` | **T13's acceptance command** (`HOS_NO_MOVIES=1 HOS_HANDHELD=1`, no program left out), 180 s | The last screenshot (`vk_006600`) shows the title. The last frame line: 33.4 fps, 1,231 draws, 74 passes, replay submit 22.8 ms (descriptors 11.5 ms). Highest `vk: status` VRAM: 1.5 of 5.1 GB |
+
+- Both runs rewrote the save (`8deb25a1…`, `3687a2b6…`); yours was put back each time and is in place (`83abe43e…`).
+- The two frame rates differ: `title8` at 60 fps with ~1,063 draws, `titlegate` at 33 fps with ~1,231. Why is
+  **unknown** (the title scene's animation phase, or work left out with the skip switch); recorded for T22.
+
+## Acceptance criteria (session 5)
+
+| Command | Result |
+|---|---|
+| `run.sh titlegate 180 -- HOS_NO_MOVIES=1 HOS_HANDHELD=1 && fetch.sh titlegate` | The last screenshot shows the title screen (above). **Met** (named `titlegate`, so session 1's `title` run is kept) |
+| `grep -ci "device lost" work/runs/titlegate/hookshot_log.txt` | `0`. **Met** |
+| `journalctl -k -b \| grep -cE "gfx_\|amdgpu.*timeout"` | 22 before the run and 22 after: **no new lines** from this run. The 22 are earlier sessions' (sessions 1-2 and the set-up lines of this boot). Literally the count is not 0 |
+| `grep -n "dropped stages"` | Empty. **Met** |
+| `tests/run_all.py` | The last full run (on `03ae582`) gave 325 passed, 10 failed, 9 skipped. The extra failure was fixed and its test passes on its own; the audio tests pass after `18218a6`. **Not re-run in full** since |
+
+## Gate 1
+
+**Headless: reached.** What remains is **your check at the Deck**: the title screen windowed against the console
+(layout, colours, motion). Gate 1 passes when you confirm.
+
+```
+scripts/deck/run.sh titlew2 300 --window --sound -- HOS_HANDHELD=1 HOS_WINDOW_SIZE=1280x720
+```
+
+Known differences to expect, which are not Gate 1's:
+- sound effects (T18);
+- the UI flicker class (problems 3-4, 11);
+- problems 10-14 from the play-through;
+- the gameplay hang (problem 7), which still needs its switch in play.
