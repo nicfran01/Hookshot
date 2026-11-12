@@ -654,3 +654,58 @@ This is generic (any NVN game that reads occlusion counts), so it is an **upstre
 
 2. **Problem 7**, the hang: unchanged.
 3. **Problems 3-5**, the UI boxes and labels, smeared foliage and 3D artifacts: unchanged.
+
+---
+
+# Session 5, continued: your windowed play-through (`prologue2`)
+
+`scripts/deck/run.sh prologue2 3600 --window --sound -- HOS_HANDHELD=1 HOS_WINDOW_SIZE=1280x720 RX_VK_SKIP_PROG=cffdbb02c4dfbd39`,
+on the occlusion-fix build: swapchain 1280x718, mailbox.
+
+## What you saw
+
+- **Fixed:** you went past session 3's point and took out a bigger enemy. Jumps and swimming in your own ink work.
+  Walking may feel a little slow; the frame rate is the likely reason (**inferred**). In 3D scenes (frames over
+  300 draws) it was 10.6-60.2 fps, median 50.0.
+- **The freeze:** you went into a room, a short cutscene played, then the black loading screen stayed up for good.
+- **Flicker:** the UI still flickers (problem 4), and 3D things flicker a little while a blur effect is on (new detail
+  for problems 4/5).
+- **Sound:** music and the characters' talking noises play. Nothing plays for shooting, hitting the ground, boxes or
+  balloons, hitting or defeating enemies, or collecting things.
+
+## Problem 9 (new): the freeze at the loading screen is an audio effect that never becomes removable
+
+- **The process was alive but idle (verified):**
+  - presents stopped at 19,800 on the loading screen (5 draws a frame);
+  - other threads kept logging, and every thread was asleep (`top -H`, no thread using CPU);
+  - no device loss, no GPU timeout this boot after 12:45 (`journalctl -k`), and no occlusion report given up.
+- **The last new calls before it (verified):** after the last present, the game made its first calls to three
+  `nn::audio` functions the host does not implement (`[a64] unimplemented import`):
+  - `nn::audio::IsBiquadFilterEnabled` (`lr 0x8357f790`)
+  - `nn::audio::RemoveBiquadFilter` (`lr 0x83582e8c`)
+  - `nn::audio::IsDelayRemovable` (`lr 0x8357f7b8`)
+- **The caller (verified, `0x8357f720`, an effect wrapper):** it asks whether the effect is enabled, disables it, then
+  asks whether it is removable. Only on yes does it remove it; on no it branches to `0x8357f8ac` to try again later.
+- **Why it hangs (inferred):** the host's unimplemented imports answer 0, so a delay effect is never removable, and the
+  scene change that waits for the old scene's audio to be torn down never ends. The host already answers 1 for the
+  sibling calls (`IsReverbRemovable`, `IsAuxRemovable`, `IsBiquadFilterRemovable`… `host/nn_audio.c:1582-1591`). The
+  `Delay`, plain `Reverb`, `Compressor` and `Capture` families are missing. In this run, 29 distinct `nn::audio`
+  imports were unimplemented (each is logged on its first call), most of them `Delay` and `BiquadFilter` setters.
+- **Owner:** `nn::audio` is **T18** by T10's ownership table (`docs/plans/tasks/T10-offline-stubs.md:98`). T13 does not
+  fix it.
+- **What T18 has to do here:** its scope item 2 covers exactly this: effect calls must leave the effect in a state the
+  game's later calls accept. At minimum, the delay effect needs an "add, enable/disable, removable, remove" bypass. That
+  likely also covers the missing sound effects (**inferred**: music and voices play, so the device and the main mix
+  work; what is missing goes through other paths, effects among them).
+
+## Saves
+
+- Your play wrote a new save at 22:08:18, 5,066 B, md5 `55ce2485…`. It is **left in place** as your latest progress, and
+  a copy is in `~/raiders/work/t13s5_save_prologue2/`.
+- The game was stopped after the log was fetched (it was frozen).
+
+## Gate 1, updated
+
+1. **Problem 9 (T18):** the loading-screen freeze, then playing on to the end of the prologue for the title save.
+2. **Problem 7**, the hang: unchanged (the switch is still needed).
+3. **Problems 3-5:** UI boxes and flicker, 3D flicker under blur, smeared foliage.
