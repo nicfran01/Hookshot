@@ -26,7 +26,7 @@
   - **Ink:** all four behaviours work.
   - **Continue:** the second boot brought you to the results screen of the level you had closed the game in.
   - **New problems you saw:** every 2D UI element over 3D flickers; the scene is brighter after the gear menu; and
-    **the gyro does not move the aim**, which is a regression against T15 (below).
+    **the gyro did not move the aim until you quit the Steam client in Desktop Mode**; then it worked again (below).
 
 Claims are **verified** (run, command, file:line or log line named) unless marked **inferred** or **unknown**. Runs are
 in `work/runs/<name>/` on the Mac and `~/raiders/work/runs/<name>/` on the Deck. Logs, screenshots, frame captures and
@@ -301,7 +301,7 @@ your save; yours stayed `d9dfb4bb…`):
 | Start, play, save, quit | `check1`: you closed the window (`display: window closed, exiting`, exit 0). The game had written `save.dat` at 22:11:07, 5,962 B (verified) |
 | Continue | `check2`: **the game resumed at the results screen of the level you closed it in** (your check). Raiders does not drop you back into a level |
 | Sound | `check1` was muted by `run.sh`'s default (`HOS_AUDIO=0`; my command left out `--sound`). With `--sound` in `check2`, the sound present before is there. The missing effects are T18's |
-| Gyro | **Does not move the aim** in `check1` or `check2` (your check). See the regression note below |
+| Gyro | Did not move the aim in `check1` or `check2` while the Steam client ran. **It works again once Steam is quit in Desktop Mode** (your check, during `check2`) |
 
 **Frame rate in your play** (`check1`, 417 s after boot): 41.1 fps mean, 1% low 17.1 fps, 24.2% of frames over 33.4 ms.
 Peak resident set 6.69 GB (`run.sh`: the run ended by itself, so `peak_rss_kb.txt` exists).
@@ -309,18 +309,19 @@ Peak resident set 6.69 GB (`run.sh`: the run ended by itself, so `peak_rss_kb.tx
   ~59 fps at 1,768 for the rest.
 - So the level follows the area or state the game is in, not only the start-up. That is a lead for T22.
 
-**The gyro: a regression against T15 (verified from the logs; the cause is unknown).**
-- `check2` has the same launch as T15's working `gyro_a` (Desktop Mode, over SSH, windowed, handheld, `HOS_MOTION_DEBUG=1`).
+**The gyro: the Steam client blanks it in Desktop Mode too (verified by your check; the mechanism is inferred).**
+- `check2` had the same launch as T15's working `gyro_a` (Desktop Mode, over SSH, windowed, handheld, `HOS_MOTION_DEBUG=1`).
   The log reads `"Steam Deck Controller" connected (SDL), with a gyroscope` and `motion controls from "Steam Deck
   Controller"`, as in `gyro_a`.
-- **But no readings arrive:** `check2` has **one** `hid: motion:` line, all zeros (`accel (-0.00, +0.00, -0.00) G`). With
-  gravity, a working sensor reads about 1 G. `gyro_a` had 344 lines that followed the tilt.
-- **What was different (inferred):** the Steam client has run in this Desktop Mode session since 15:49
-  (`steam -steamdeck`). T15 found that Steam holding the Deck's controller freezes or blanks its sensors in Gaming Mode.
-  Whether Steam was running during `gyro_a` is unknown.
-- **Next step** (T15's area, not changed here): repeat `check2` with Steam quit in Desktop Mode. If the gyro then works,
-  this is T15's Gaming Mode finding reaching Desktop Mode too, and T15's plan B (Steam Input's gyro on the right stick)
-  or `steam_launch.sh --raw-deck-pad` is the way.
+- **But no readings arrived:** `check2` has one `hid: motion:` line, all zeros (`accel (-0.00, +0.00, -0.00) G`; a
+  working sensor reads about 1 G of gravity). `gyro_a` had 344 lines that followed the tilt.
+- **The Steam client was running** in this Desktop Mode session from 15:49 (`steam -steamdeck`). When you quit it, the
+  gyro moved the aim again (your check).
+- **So T15's Gaming Mode finding applies to Desktop Mode whenever Steam runs** (inferred): Steam holding the Deck's
+  controller leaves the game's SDL view of it without sensor data.
+- **For now:** quit Steam before a Desktop Mode run that needs the gyro.
+- **For T24:** the shipped launch needs T15's plan B (Steam Input's gyro on the right stick), or the `--raw-deck-pad` lead
+  (`steam_launch.sh`), in both modes. Nothing in the code was changed here.
 
 ## Decisions
 
@@ -330,5 +331,11 @@ Peak resident set 6.69 GB (`run.sh`: the run ended by itself, so `peak_rss_kb.tx
 - **No performance change** (T22) and no memory change (T20) was made. The bistable level is recorded for T22.
 - **A gap in the plan:** no task from T18 to T25 fixes rendering correctness. That covers V1/V6 (the UI flicker), V2/V3
   (the overlay out of step) and V7 (the brightness after the gear menu). T18-T19 are audio and movies, T20-T22
-  memory, caches and CPU, T23 a soak, T24 packaging, T25 upstream PRs. A new task is needed for them (proposed: T17a,
-  UI and overlay rendering).
+  memory, caches and CPU, T23 a soak, T24 packaging, T25 upstream PRs. A new task covers them:
+  `docs/plans/tasks/T17a-ui-and-overlay-rendering.md` (written at your request).
+- **A measure for the UI flicker** (`play1` frame capture, from 60 s; a scratch script over `scripts/framelog.py`'s
+  blocks):
+  - **The HUD's bottom left** (block rows 7-8, columns 0-4 of the 16x9 grid) has a one-frame jump in **465 of every
+    1,000 frames**, and the counter at the top right in 28.
+  - The same-sized regions with no HUD have 23-46 (bottom centre 45.5, middle 23.2).
+  - This is T17a's baseline.

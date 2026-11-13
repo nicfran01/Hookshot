@@ -41,12 +41,14 @@ flowchart LR
     T13 --> T16[T16 saves]
     T15 --> T17[T17 gameplay correctness]
     T16 --> T17
+    T17 --> T17a[T17a UI and overlay rendering]
     T17 --> T18[T18 audio]
     T17 --> T19[T19 movies]
     T17 --> T20[T20 memory]
     T17 --> T21[T21 shader caches]
     T17 --> T22[T22 CPU performance]
     T20 --> T23[T23 stability soak]
+    T17a --> T23
     T21 --> T23
     T22 --> T23
     T23 --> T24[T24 packaging]
@@ -112,10 +114,11 @@ returns. Owners by namespace: the "Ownership of traced calls" table in `tasks/T1
   aims with gyro or the documented fallback, saves, quits and continues from the save. T17's report records
   average fps and RSS in that area and confirms ink behaviour (swimming in own ink, slowed in enemy ink).
 
-### M6 · Audio and movies
-- **Tasks:** T18, T19.
+### M6 · Audio, movies and rendering
+- **Tasks:** T18, T19, T17a (added after T17: no other task covered rendering correctness).
 - **Exit:** music and effects play without crackle for ten minutes in the first area; one of the
-  `UI/Movie/Gadget_*.webm` clips plays in its menu at normal speed.
+  `UI/Movie/Gadget_*.webm` clips plays in its menu at normal speed; the HUD shows no flicker in normal play and the
+  scene keeps its brightness after the gear menu (T17a's criteria).
 
 ### M7 · Deck stability and performance  — **Gate 2 (verdict)**
 - **Tasks:** T20, T21, T22, T23.
