@@ -169,7 +169,15 @@ struct ParLock {
 void memory_pool_created(uint64_t gpu, uint64_t size);
 /// Whether guest memory in [lo, hi) is in an imported pool, live or retired (the GPU may read or write it)
 int memory_guest_imported(uint64_t lo, uint64_t hi);
+/// (raiders, T17b) RX_VK_POOL_LOG=1: why no pool held a draw's index buffer (logged; nothing changes)
+void memory_explain_unbound(uint64_t gpu, uint64_t size, uint64_t program);
 void memory_stats(int64_t* mirrors, uint64_t* mirror_mb, int64_t* sync_bytes, int64_t* sync_copies, int64_t* wb_bytes);
+/// (raiders, T17a) Whether buffer pools get VRAM mirrors (RX_VK_MIRROR; on for discrete GPUs)
+bool memory_mirrors_on();
+/// (raiders, T17a) Whether the GPU has written any page of [gpu, gpu + size) (memory_stamp_gpu); true when unknown
+bool memory_gpu_written(uint64_t gpu, uint64_t size);
+/// (raiders, T17a) The memory generation as frame `frame - frames` began (0: not known); notes `frame`'s too
+uint32_t memory_generation_before(uint64_t frame, uint32_t frames);
 // Page write generations (vk_memory.cpp, after totk-pc-recomp's vk_memory.c): at each submit the guest pages the CPU
 // wrote since the last one (the soft write watch) are stamped with a new generation; a texture uploaded at
 // generation g is stale when a page of its storage carries a newer one. GPU writes into guest memory that textures

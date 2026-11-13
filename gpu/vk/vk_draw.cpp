@@ -46,6 +46,7 @@
 #include "vk_shader.h"
 #include "vk_texture.h"
 #include "movie_upscale_policy.h"
+#include "as_submitted_policy.h"   // (raiders, T17a)
 #include "skip_code.h"
 #include "vk_occlusion.h"     // (raiders) samples-passed reports from occlusion queries
 
@@ -64,6 +65,8 @@ struct PointerEntry { uint64_t addr, size; };
 const PointerEntry* pointer_table(const NvnState& s, int stage);
 uint32_t stage_cbuf_word(const NvnState& s, const Stage& st, uint32_t index, uint32_t offset);   // (vk_shader.cpp)
 uint64_t sampler_registrations_generation();   // (vk_bank.cpp: sampler_for's cache)
+void as_submitted_count(int kind, uint64_t bytes);   // ((raiders, T17a) below, with storage_as_submitted)
+BufferRef storage_as_submitted(uint64_t addr, uint64_t size);   // (raiders, T17a)
 namespace {
 // ---- (hookshot) this file's per-thread objects that need a constructor or a destructor ----
 // With llvm-mingw every use of such a thread_local calls the file's TLS init function, which saves registers, finds the
@@ -392,6 +395,8 @@ struct RecordingRes {
     uint64_t before = 0;           // (what the recording used of the streams before this one)
     uint32_t idle = 0;             // (recordings of the slot that stayed in the first stream)
     std::unordered_map<const void*, std::pair<VkBuffer, uint64_t>> c1_at;   // (c1 of a stage: uploaded once a recording)
+    struct SbCopy { uint64_t size; VkBuffer buffer; uint64_t at; };
+    std::unordered_map<uint64_t, SbCopy> sb_copies;   // ((raiders, T17a) storage ranges copied as submitted, by address)
 };
 // (a recording's first stream: one for each of the kRecordings slots. RX_VK_STREAM_MB=<n>: that size, 2 by default; a recording
 // that needs more is given a bigger stream for the rest of it (RX_VK_STREAM_GROW_OFF=1: draws are skipped instead, and the default
@@ -2476,7 +2481,12 @@ VkDescriptorBufferInfo uniform_range(const NvnState& s, const Stage& st, uint32_
                 return {cur->stream, at, n};
             }
         // (RX_VK_UB_SNAPSHOT=1: the contents as they are now, in the stream, not the pool the GPU reads later)
-        static const bool snapshot = getenv("RX_VK_UB_SNAPSHOT") != nullptr;
+        // ((raiders, T17a) and by default whenever the pools have no VRAM mirrors: the GPU read the pool itself when it got
+        // there, after the game had written later frames' constants into it. Not memory the GPU writes: as_submitted_policy.h.
+        // RX_VK_UB_SNAPSHOT=0: never)
+        static const bool snapshot_on = as_submitted::switch_on(getenv("RX_VK_UB_SNAPSHOT"), memory_mirrors_on());
+        const bool snapshot = as_submitted::copy_uniform(snapshot_on, snapshot_on && memory_gpu_written(u.addr, n));
+        if (snapshot_on) as_submitted_count(snapshot ? 0 : 1, snapshot ? n : 0);
         BufferRef b = snapshot ? BufferRef{} : gpu_buffer_bind(u.addr, n, false);
         if (b && b.offset % align == 0) return {b.buffer, b.offset, n};
         const uint64_t at = stream_alloc(n, align);   // (unaligned or outside the pools: copied into the stream)
@@ -2809,7 +2819,9 @@ void build_descriptors(const NvnState& s, const Program& p) {
                 // (hookshot) a storage buffer table's entries (count > 1, Info::global_tables): the ones past the table's
                 // end are whatever the constant buffer holds there, bound only when they look like a buffer
                 const bool plausible = d.count == 1 || (size && size <= (256ull << 20) && host->gpu_guest(base));
-                BufferRef b = addr && plausible ? gpu_buffer_bind(base, n, d.is_written && !bare) : BufferRef{};
+                // ((raiders, T17a) a single read-only one the CPU wrote lately, as submitted: as_submitted_policy.h)
+                BufferRef b = addr && plausible && d.count == 1 && !d.is_written && !wide_n ? storage_as_submitted(base, n) : BufferRef{};
+                if (!b) b = addr && plausible ? gpu_buffer_bind(base, n, d.is_written && !bare) : BufferRef{};
                 // (AyyBeeDee20738, PR 138) a table entry's region that does not fit its pool this moment bound nothing, and the next
                 // frame bound it again: its reads flipped between the data and 0, the picture between bright and dark. Smaller,
                 // down to 1 MB, rather than nothing (and past what is bound the shaders' search now goes on to the page table)
@@ -4285,6 +4297,7 @@ void draw_begin_recording(int slot, VkCommandBuffer cmd, uint64_t value) {
              (unsigned long long)stream_grown.load(), (unsigned long long)(stream_extra.load() >> 20));
     r.used = 0, r.before = 0;
     r.c1_at.clear();
+    r.sb_copies.clear();   // (raiders, T17a)
     cur = &r;
     pass() = Pass{};
     work_since_barrier = false;
@@ -5437,6 +5450,58 @@ bool vertex_bind_reuse(uint64_t addr, uint64_t size, uint64_t stamp, uint64_t ca
                        uint64_t cached_stamp, int cached) {
     return cached && addr && size && addr == cached_addr && size == cached_size && stamp == cached_stamp;
 }
+// ---- (raiders, T17a) copies as submitted where the pools are not mirrored: as_submitted_policy.h ----
+// kind 0: a uniform buffer copied, 1: one left in place (GPU-written), 2: a read-only storage buffer copied, 3: one left in
+// place (GPU-written), 4: one left in place (over the size limit). Logged every 600 frames
+constexpr int kAsSubKinds = 5;
+std::atomic<int64_t> st_as_sub[kAsSubKinds], st_as_sub_bytes[kAsSubKinds];
+std::atomic<uint64_t> st_as_sub_frame{0};
+void as_submitted_count(int kind, uint64_t bytes) {
+    st_as_sub[kind].fetch_add(1, std::memory_order_relaxed);
+    st_as_sub_bytes[kind].fetch_add((int64_t)bytes, std::memory_order_relaxed);
+    const uint64_t f = texture_frame_no();
+    uint64_t last = st_as_sub_frame.load(std::memory_order_relaxed);
+    if (f >= last + 600 && st_as_sub_frame.compare_exchange_strong(last, f)) {
+        if (!last) return;   // (the first call starts the count)
+        int64_t n[kAsSubKinds], b[kAsSubKinds];
+        for (int i = 0; i < kAsSubKinds; i++) n[i] = st_as_sub[i].exchange(0), b[i] = st_as_sub_bytes[i].exchange(0);
+        const double fr = (double)(f - last);
+        logf("vk: a frame: as submitted: %.0f uniform buffers copied (%.2f MB), %.1f left in GPU-written memory; %.1f read-only "
+             "storage buffers copied (%.2f MB), %.1f left in GPU-written memory, %.1f over %llu MB", n[0] / fr, b[0] / fr / 1048576.0,
+             n[1] / fr, n[2] / fr, b[2] / fr / 1048576.0, n[3] / fr, n[4] / fr, (unsigned long long)(as_submitted::kStorageCopyMax >> 20));
+    }
+}
+/// A single read-only storage buffer the CPU wrote in the last frames, copied into the recording's stream as submitted
+/// (once a recording); empty: bind it where it is (RX_VK_SB_SNAPSHOT=0, mirrored pools, memory the GPU writes, a big or
+/// static range)
+BufferRef storage_as_submitted(uint64_t addr, uint64_t size) {
+    static const bool on = as_submitted::switch_on(getenv("RX_VK_SB_SNAPSHOT"), memory_mirrors_on());
+    if (!on || !cur || !size) return {};
+    if (auto it = cur->sb_copies.find(addr); it != cur->sb_copies.end() && it->second.size == size)
+        return {it->second.buffer, it->second.at, size, 0};
+    if (size > as_submitted::kStorageCopyMax) {
+        as_submitted_count(4, 0);
+        return {};
+    }
+    const uint64_t guest = addr < (1ull << 40) ? addr : host->gpu_guest(addr);
+    const uint32_t since = memory_generation_before(texture_frame_no(), as_submitted::kRecentFrames);
+    if (!guest || !memory_written_since(guest, size, since)) return {};   // (static: loaded before, read where it is)
+    if (!as_submitted::copy_storage(on, size, true, memory_gpu_written(addr, size))) {
+        as_submitted_count(3, 0);
+        static std::atomic<int> told{0};   // (RX_VK_AS_SUBMITTED_LOG: the first ones, to find what wrote them)
+        static const bool log = getenv("RX_VK_AS_SUBMITTED_LOG") != nullptr;
+        if (log && told++ < 40)
+            logf("vk: as submitted: storage buffer %#llx +%#llx left in place: the GPU wrote a page of it", (unsigned long long)addr,
+                 (unsigned long long)size);
+        return {};
+    }
+    const uint64_t at = stream_alloc(size, 256);
+    if (at == UINT64_MAX) return {};
+    if (!memory_read_as_submitted(addr, cur->mapped + at, size)) return {};
+    cur->sb_copies[addr] = {size, cur->stream, at};
+    as_submitted_count(2, size);
+    return {cur->stream, at, size, 0};
+}
 struct KeptVertex {
     uint64_t addr = 0, size = 0, stamp = 0;
     BufferRef ref{};
@@ -6457,7 +6522,10 @@ void draw(VkCommandBuffer cmd, NvnState& s, const DrawArgs& d) {
         {
             FINE_SCOPE(FT_VERTEX);
             ib = gpu_buffer_bind(d.ibuf, (uint64_t)std::max(d.count, 1) * unit, false);
-            if (!ib) SKIP_HERE();
+            if (!ib) {   // ((raiders, T17b) RX_VK_POOL_LOG=1: why, vk_memory.cpp)
+                memory_explain_unbound(d.ibuf, (uint64_t)std::max(d.count, 1) * unit, cp->key);
+                SKIP_HERE();
+            }
             FINE_N(FC_IBIND, 1);
             bind_index(cmd, ib.buffer, ib.offset, itype);
         }
