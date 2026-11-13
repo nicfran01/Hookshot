@@ -22,8 +22,11 @@
     (830 to 2,150). The limit is the replay's thread, not the GPU: the GPU takes ~9-10 ms a frame in every run.
 - **Memory:** about 5.7 GB resident, plus ~2.8-2.9 GB GTT and 0.9 GB VRAM in use on the GPU. That is high for a 16 GB
   machine (T20).
-- **Still to do: your checks at the Deck.** These are the four ink behaviours, start/play/save/quit/continue on the
-  Deck's own controls, and the console comparison of visual differences. The commands are at the end.
+- **Your checks at the Deck (`check1`, `check2`, windowed, the Deck's own controls): ink and continue passed.**
+  - **Ink:** all four behaviours work.
+  - **Continue:** the second boot brought you to the results screen of the level you had closed the game in.
+  - **New problems you saw:** every 2D UI element over 3D flickers; the scene is brighter after the gear menu; and
+    **the gyro does not move the aim**, which is a regression against T15 (below).
 
 Claims are **verified** (run, command, file:line or log line named) unless marked **inferred** or **unknown**. Runs are
 in `work/runs/<name>/` on the Mac and `~/raiders/work/runs/<name>/` on the Deck. Logs, screenshots, frame captures and
@@ -239,6 +242,8 @@ ms: 83.3%`.
 | V3 | Respawn iris wipe | One frame with the wrong circle, or the scene showing outside it (134.2, 188.5, 298.5 s) | As V2 | Low-medium |
 | V4 | Docked hub (T15) | **Not reproduced.** T15's docked hub was magenta; `play1_t17a` (headless), `play1` and `meas_dk` (windowed) all draw it correctly. The compute program T15 named (`20ce8fa19e5349c2`, a network left out on AMD) never ran (0 log lines) | Unknown; T15 used `HOS_INPUT_FRAME_CLOCK=1` and an earlier build | Open, watch |
 | V5 | Hub nets | Present in shots; the flicker T13 saw (problem 13) was not looked for frame by frame | Unknown | Low |
+| V6 | **Every 2D UI element drawn over 3D** (your check, `check1`) | Flickers and glitches all through play: V1 seen live, constant rather than occasional | V1's class; T13's problem 4 and item 11 | **High:** always visible |
+| V7 | **After the gear menu (+)** (your check, `check1`) | The scene is brighter than before the menu | T13's item 12 reproduced: state the menu's rendering leaves behind (exposure, a render target or a texture the 3D reuses; unknown) | Medium |
 | — | Colours, shadows, fog, missing objects | Need the console side by side | Your check | — |
 
 T13's open items 10-14 (`M4-first-frame.md`) still stand. Item 10 is now explained: the game runs per frame (step 4).
@@ -269,7 +274,7 @@ T13's open items 10-14 (`M4-first-frame.md`) still stand. Item 10 is now explain
 | `awk … work/runs/play1/frames.csv` | `frames 7322  mean 43.7 ms  over 33.4 ms: 83.3%` | Met (a measurement) |
 | `grep -ci "device lost" work/runs/play1/hookshot_log.txt` | `0` | Met |
 | `.venv/bin/python -I -B tests/run_all.py` | Header paths unset: `296 passed, 9 failed, 42 skipped`. Set (`HOOKSHOT_VULKAN_HEADERS`/`HOOKSHOT_SPIRV_HEADERS=/opt/homebrew/include`, `--jobs 4`, as T13): **`329 passed, 9 failed, 9 skipped in 810 s`** | Met: the 9 failures are the same files as T13's final run (`diff` of the names: none). The 3 extra passes are T15's and T16's tests and `test_frame_log_offscreen.py` |
-| Your checks: the four ink behaviours; start, play, save, quit, continue on the Deck's controls | — | **Not yet:** below |
+| Your checks: the four ink behaviours; start, play, save, quit, continue on the Deck's controls | Ink: all four work. Continue: the second boot resumed at the results screen of the level you quit in | **Met** (`check1`, `check2`; below) |
 
 **Why the acceptance run has more switches than the task's command.**
 - **`--window`:** `RX_VK_FRAMELOG` needs a real swapchain (it is taken in `present_image`).
@@ -282,24 +287,40 @@ T13's open items 10-14 (`M4-first-frame.md`) still stand. Item 10 is now explain
 None of them loosens a criterion. The task's command as written, run headless (`play1_t17a`, before the frame-log fix),
 produced no `frames.csv` and no `framelog`.
 
-## Your checks at the Deck (to do)
+## Your checks at the Deck (done 2026-11-12)
 
-1. **The play folder.** `~/raiders/work/t17_user_play` is a copy of your save (`d9dfb4bb…`). It persists between runs,
-   so save and continue can be checked without touching your own save. In Desktop Mode, from the Mac:
+**The runs.** Windowed, handheld profile, the Deck's own controls, on `~/raiders/work/t17_user_play` (a persistent copy of
+your save; yours stayed `d9dfb4bb…`):
+- `check1`: `run.sh check1 1800 --window --args "--user /home/deck/raiders/work/t17_user_play" -- HOS_HANDHELD=1
+  HOS_WINDOW_SIZE=1280x720 RX_VK_SKIP_PROG=cffdbb02c4dfbd39 RX_VK_FRAME_LOG=frames.csv`;
+- `check2`: the same, with `--sound` and `HOS_MOTION_DEBUG=1`.
 
-   ```bash
-   scripts/deck/run.sh check1 1800 --window -- HOS_HANDHELD=1 HOS_WINDOW_SIZE=1280x720 RX_VK_SKIP_PROG=cffdbb02c4dfbd39 --args "--user /home/deck/raiders/work/t17_user_play"
-   ```
+| Check | Result |
+|---|---|
+| Ink: swim in own ink, walk in enemy ink, climb an inked wall, ink stays | **All four work** (your check, in the hub and in a level) |
+| Start, play, save, quit | `check1`: you closed the window (`display: window closed, exiting`, exit 0). The game had written `save.dat` at 22:11:07, 5,962 B (verified) |
+| Continue | `check2`: **the game resumed at the results screen of the level you closed it in** (your check). Raiders does not drop you back into a level |
+| Sound | `check1` was muted by `run.sh`'s default (`HOS_AUDIO=0`; my command left out `--sound`). With `--sound` in `check2`, the sound present before is there. The missing effects are T18's |
+| Gyro | **Does not move the aim** in `check1` or `check2` (your check). See the regression note below |
 
-   Play with the Deck's own controls. `RX_VK_SKIP_PROG` avoids T13's hang (problem 7) if you go to the beach.
-2. **Ink:**
-   1. swim in your own ink: fast and hidden;
-   2. walk in enemy ink: slow, with damage;
-   3. climb an inked wall;
-   4. ink stays when you look away and back.
-3. **Save, quit, continue.** Save (the game saves on its own at story points and on arriving in an area). Close it, run
-   the same command again (`check2`), and continue.
-4. **The visual comparison against the console** (V1-V5 and anything else). One line each is enough.
+**Frame rate in your play** (`check1`, 417 s after boot): 41.1 fps mean, 1% low 17.1 fps, 24.2% of frames over 33.4 ms.
+Peak resident set 6.69 GB (`run.sh`: the run ended by itself, so `peak_rss_kb.txt` exists).
+- Unlike the scripted runs, the level of game work changed **within** the run: ~22 fps at 2,132 updates a frame, then
+  ~59 fps at 1,768 for the rest.
+- So the level follows the area or state the game is in, not only the start-up. That is a lead for T22.
+
+**The gyro: a regression against T15 (verified from the logs; the cause is unknown).**
+- `check2` has the same launch as T15's working `gyro_a` (Desktop Mode, over SSH, windowed, handheld, `HOS_MOTION_DEBUG=1`).
+  The log reads `"Steam Deck Controller" connected (SDL), with a gyroscope` and `motion controls from "Steam Deck
+  Controller"`, as in `gyro_a`.
+- **But no readings arrive:** `check2` has **one** `hid: motion:` line, all zeros (`accel (-0.00, +0.00, -0.00) G`). With
+  gravity, a working sensor reads about 1 G. `gyro_a` had 344 lines that followed the tilt.
+- **What was different (inferred):** the Steam client has run in this Desktop Mode session since 15:49
+  (`steam -steamdeck`). T15 found that Steam holding the Deck's controller freezes or blanks its sensors in Gaming Mode.
+  Whether Steam was running during `gyro_a` is unknown.
+- **Next step** (T15's area, not changed here): repeat `check2` with Steam quit in Desktop Mode. If the gyro then works,
+  this is T15's Gaming Mode finding reaching Desktop Mode too, and T15's plan B (Steam Input's gyro on the right stick)
+  or `steam_launch.sh --raw-deck-pad` is the way.
 
 ## Decisions
 
@@ -307,3 +328,7 @@ produced no `frames.csv` and no `framelog`.
   on an integrated GPU.
 - **Measurements are windowed,** as you play. Headless runs give no swapchain frame capture.
 - **No performance change** (T22) and no memory change (T20) was made. The bistable level is recorded for T22.
+- **A gap in the plan:** no task from T18 to T25 fixes rendering correctness. That covers V1/V6 (the UI flicker), V2/V3
+  (the overlay out of step) and V7 (the brightness after the gear menu). T18-T19 are audio and movies, T20-T22
+  memory, caches and CPU, T23 a soak, T24 packaging, T25 upstream PRs. A new task is needed for them (proposed: T17a,
+  UI and overlay rendering).
