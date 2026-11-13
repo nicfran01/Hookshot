@@ -25,7 +25,9 @@
 - **The gear-menu brightness:** within 3% in all three final-build pairs (−0.09%, −1.34%, −0.23%). But the menu still
   leaves a lighting change behind at times (−3.2% in two earlier runs; one washed-out run under an A/B switch). Its
   cause is **not found**: `BLOCKER-T17a-2026-11-13.md`.
-- **The user check at the Deck is still to do** (step 6).
+- **Your check at the Deck** (`check3`, step 6): the UI flicker is gone and the scene no longer brightens after the menu.
+  But once, after the menu, the ground went missing: 36-107 draws a frame left out for an index buffer in no imported pool
+  (upstream's code, T13's item 12). The world flicker you saw comes with that state.
 
 Claims are **verified** (run, command, log line or file:line named) unless marked **inferred** or **unknown**. Runs are in
 `work/runs/<name>/` (Mac) and `~/raiders/work/runs/<name>/` (Deck). Every run is windowed, handheld
@@ -233,7 +235,7 @@ input in between, plus the count of 20x20 blocks that changed by more than 3 lev
 | `grep -ci "device lost" work/runs/ui1/hookshot_log.txt` | `0` | Met |
 | Gear-menu pair within 3% | Final build: −0.09% (`gear5`), −1.34% (`gear7`), −0.23% (`gear8`) | **Met in 3 of 3 final-build pairs.** The underlying change is not explained; it reached −3.25%/−3.15% in two intermediate runs (above, and the blocker) |
 | `.venv/bin/python -I -B tests/run_all.py` (header paths set, `--jobs 4`) | `331 passed, 9 failed, 9 skipped in 841 s` | **Met:** the same 9 failures as T17, plus the 2 new tests passing |
-| User check at the Deck | not done yet | **Open:** step 6, below |
+| User check at the Deck | UI flicker gone; no brighter scene after the menu; the ground went missing once after the menu, with world flicker from then on | **Partly met:** the missing ground (draws left out, step 6) is open |
 
 `ui1` settled at the fast game-work level (979 updates a frame, 39.9 fps), where `ui0` was at the slow one (2,121). The
 same criterion also held at the slow level in an intermediate build: `fix3` gave 38.0 against 2 × 26.3 = 52.6.
@@ -244,21 +246,45 @@ same criterion also held at the slow level in an intermediate build: `fix3` gave
 
 The final run: **`331 passed, 9 failed, 9 skipped in 841 s`**. The 9 are the known ones: 8 FAIL plus the `test_program_cache_reader.py` TIMEOUT, as in T17. 331 = T17's 329 + `test_framelog_regions.py` + `test_as_submitted.py`. **Met.**
 
-## Step 6: your check at the Deck (to do)
+## Step 6: your check at the Deck (`check3`, 2026-11-13)
 
-A 10-minute windowed session with sound, in the hub, one level and the gear menu. Quit the Steam client first if you
-want the gyro (T17):
+`scripts/deck/run.sh check3 900 --window --sound --args "--user /home/deck/raiders/work/t17_user_play" -- HOS_HANDHELD=1
+HOS_WINDOW_SIZE=1280x720 RX_VK_SKIP_PROG=cffdbb02c4dfbd39 RX_VK_FRAMELOG=framelog`. You played the hub, a level and back,
+then closed the game at 437 s. Steam was quit; 0 device losses.
 
-```
-scripts/deck/run.sh check3 900 --window --sound --args "--user /home/deck/raiders/work/t17_user_play" -- HOS_HANDHELD=1 HOS_WINDOW_SIZE=1280x720 RX_VK_SKIP_PROG=cffdbb02c4dfbd39 RX_VK_FRAMELOG=framelog
-```
+**Your verdict:**
 
-What to look for:
-- UI flicker in normal play: HUD, prompts, the counter, the water warning, the respawn wipe;
-- the scene's brightness or lighting after the gear menu;
-- ink, save and continue as in T17.
+| Check | Result |
+|---|---|
+| UI flicker | **Gone** |
+| Brightness after the gear menu | **No change**, over several PLUS round trips |
+| The ground | **Gone under you once** after leaving the gear menu, back in the hub |
+| World flicker | A new-looking flicker in the world while the camera or the character moves |
+| Speed | Faster at the start and in the level, slow motion back in the hub |
 
-`RX_VK_FRAMELOG` lets the same measure run on your session afterwards.
+**What the log and the capture show:**
+- **Slow motion: the game-work level** (T17's bistable level, T22; verified).
+  - Hub ~33-40 fps at ~1,100 uniform updates a frame.
+  - Level 30-35 fps at ~1,400.
+  - Back in the hub **18-22 fps at ~2,200**.
+  - Game time follows frames (T17 step 4). Not this change.
+- **The missing ground: draws left out** (verified).
+  - From present 8880 (271 s), every frame line reads `skips a frame by vk_draw.cpp line: 6525:`, 36-107 draws a frame,
+    where it read `(0 skipped)` before.
+  - That line is upstream's index-buffer bind (`gpu_buffer_bind(d.ibuf, …)`): the draw's index buffer is in no imported
+    pool.
+  - Just before it, `imports: 48 live (2000 MB), … 2 retired given back (112 MB)`. Inferred: a pool the game still draws
+    from, or one made again over the same memory, is no longer imported.
+  - This is T13's item 12 ("the floor went invisible under you"). The copies in this task do not take part: the skip is
+    before them.
+- **The world flicker comes with that state** (verified, the capture's one-frame events outside the HUD blocks, 3+
+  blocks, per 30 s):
+  - 33, 48, 37, 116, 92, 63, 33, 21, 51 until 270 s;
+  - **183, 221, 179, 180** from 270 s, when the skips start.
+  - The frames show the missing deck and black rectangles where geometry should be (frames 8930, 11032).
+- **On the scripted route, this change made the world calmer, not worse** (frames with a world event, per 1,000):
+  - `ui0` 336 → `ui1` 53 (mirrors: 48).
+  - In the level, before 270 s, no comparison run exists: whether any of your world flicker there is new is **unknown**.
 
 ## Deviations
 
@@ -274,8 +300,10 @@ What to look for:
 
 ## What is left
 
-1. **The gear-menu lighting change** (cause unknown): `BLOCKER-T17a-2026-11-13.md`.
-2. **Your check at the Deck** (step 6).
+1. **The gear-menu lighting change** (cause unknown): `BLOCKER-T17a-2026-11-13.md`. You saw no brightness change in `check3`.
+2. **Draws left out for want of an imported pool** after the gear menu, back in the hub (`check3`, above): the missing ground,
+   and the world flicker that comes with it. Next: log the skipped draws' index-buffer addresses against the pool list and
+   the game's pool finalize/initialize calls (`nvnMemoryPoolFinalize`, `memory_pool_created`) around 271 s.
 3. **`docs/development.md` rows** for `RX_VK_UB_SNAPSHOT` (its new default) and `RX_VK_SB_SNAPSHOT`, with the upstream
    PR (T25).
 4. **For T22:** mirrors are no option on the Deck at their cost (above). The copies' CPU cost showed no frame-rate change
