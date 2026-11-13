@@ -2945,6 +2945,22 @@ struct PendingShot {
     int64_t presents = 0;
     std::shared_ptr<std::vector<uint8_t>> pixels;
 };
+// (RX_VK_FRAME_LOG=<file>: one CSV line a present: frame, seconds since the first, frame time in ms. Frame
+// pacing on the Steam Deck, where MangoHud's log stays empty under gamescope)
+// (raiders, T17) Also called for the offscreen present: a headless run returned before present_out, and its log stayed empty
+static void frame_time_log() {
+    static FILE* fl = getenv("RX_VK_FRAME_LOG") ? std::fopen(getenv("RX_VK_FRAME_LOG"), "w") : nullptr;
+    static std::chrono::steady_clock::time_point first, prev;
+    static uint64_t frames;
+    if (fl) {
+        const auto t = std::chrono::steady_clock::now();
+        if (!frames) first = prev = t, std::fputs("frame,time_s,frametime_ms\n", fl);
+        std::fprintf(fl, "%llu,%.4f,%.3f\n", (unsigned long long)frames, std::chrono::duration<double>(t - first).count(),
+                     std::chrono::duration<double, std::milli>(t - prev).count());
+        prev = t;
+        if (++frames % 60 == 0) std::fflush(fl);
+    }
+}
 std::shared_ptr<std::vector<uint8_t>> shot_pixels(uint64_t at_value, int64_t at_present) {
     wait_value(at_value);
     // The completed transfer may target non-coherent host memory.
@@ -3311,6 +3327,7 @@ void do_present(const nvn_tex* t, const int crop[4]) {
         }
         log_frame_stats();
     }
+    if (dev.offscreen) frame_time_log();   // (raiders, T17)
     if (dev.offscreen || interpolated) return;
     present_image(src, sw, sh, crop, direct_view);
 }
@@ -3743,20 +3760,7 @@ static void present_out(uint32_t index, std::unique_lock<std::mutex>& qk) {
         static int logged;
         if (logged++ < 8) logf("vk: present failed (VkResult %d%s)", (int)res, dev.present_queue ? ", on the presents' own queue" : "");
     }
-    {   // (RX_VK_FRAME_LOG=<file>: one CSV line a present: frame, seconds since the first, frame time in ms. Frame
-        // pacing on the Steam Deck, where MangoHud's log stays empty under gamescope)
-        static FILE* fl = getenv("RX_VK_FRAME_LOG") ? std::fopen(getenv("RX_VK_FRAME_LOG"), "w") : nullptr;
-        static std::chrono::steady_clock::time_point first, prev;
-        static uint64_t frames;
-        if (fl) {
-            const auto t = std::chrono::steady_clock::now();
-            if (!frames) first = prev = t, std::fputs("frame,time_s,frametime_ms\n", fl);
-            std::fprintf(fl, "%llu,%.4f,%.3f\n", (unsigned long long)frames, std::chrono::duration<double>(t - first).count(),
-                         std::chrono::duration<double, std::milli>(t - prev).count());
-            prev = t;
-            if (++frames % 60 == 0) std::fflush(fl);
-        }
-    }
+    frame_time_log();   // (raiders, T17: RX_VK_FRAME_LOG, shared with the offscreen present)
     if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
         if (!qk.owns_lock()) qk.lock();
         create_swapchain(dev.swap_extent.width, dev.swap_extent.height);
