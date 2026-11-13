@@ -44,8 +44,11 @@ def main():
             "RX_VK_DUMP_DIR=dumps\nHOS_PRESENT_TRACE=t.txt\nRX_VK_DLSS_DIR=\\\\server\\share\n"
             "HOS_AUDIO_DUMP=image.bin\nRX_VK_HANG_DUMP=hookshot_options.ini\nRX_VK_SHOTS=user\n"
             "HOS_INPUT_SCRIPT=1:A,2:A\nRX_VK_MENU_SCRIPT=1:INS\n", encoding="utf-8")
+        # (raiders, T16) a long line is read whole (a test run's HOS_INPUT_SCRIPT ran to 1,685 characters and was cut at
+        # 511); one longer than the buffer is left out whole, and the next line is still read
         (tmp / "test_env.txt").write_text("# a test run's own switches\nHOS_T_OTHER=1\nHOS_T_SHARED=other\n"
-                                          "VK_T_LAYER=/y\n", encoding="utf-8")
+                                          "VK_T_LAYER=/y\nHOS_T_LONG=" + "1:A," * 1500 + "9:B\n"
+                                          "HOS_T_HUGE=" + "x" * 20000 + "\nHOS_T_AFTER=1\n", encoding="utf-8")
         exe = str(game / "hookshot").replace("\\", "\\\\")
         fixture = r'''#include <stdio.h>
 #include <stdlib.h>
@@ -97,12 +100,14 @@ int main(int argc, char **argv) {
     setenv("HOS_ENV_FILE", argv[1], 1);            /* a test run's own file, and only that one */
     load_hookshot_env();
     CHECK(is("HOS_T_OTHER", "1") && is("HOS_T_SHARED", "other") && is("HOS_T_BESIDE", NULL) && is("VK_T_LAYER", "/y"));
+    CHECK(getenv("HOS_T_LONG") && strlen(getenv("HOS_T_LONG")) == 6003 && !strcmp(getenv("HOS_T_LONG") + 6000, "9:B"));
+    CHECK(is("HOS_T_HUGE", NULL) && is("HOS_T_AFTER", "1"));   /* (raiders, T16) */
 
     clear();
     setenv("HOS_ENV_FILE", argv[2], 1);            /* a file that is not there: nothing, not the player's switches */
     load_hookshot_env();
     CHECK(is("HOS_T_BESIDE", NULL) && is("HOS_T_OTHER", NULL) && is("HOS_T_SHARED", NULL));
-    printf("PASS: HOS_ENV_FILE replaces hookshot_env.txt; unset or empty reads it as before; the player's file sets only the game's switches\n");
+    printf("PASS: HOS_ENV_FILE replaces hookshot_env.txt; unset or empty reads it as before; the player's file sets only the game's switches; long lines whole\n");
     return 0;
 }
 '''

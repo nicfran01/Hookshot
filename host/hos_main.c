@@ -74,6 +74,9 @@ int hos_game_is_mkw(void) { return !strcmp(hos_main_build_id, "d00e4f399e411d061
 /* (raiders) host/hos_game.h: the game of gen/hos_image.c (games/<id>/game.py) */
 int hos_game_is(const char *id) { return id && !strcmp(hos_game_id, id); }
 const char *hos_game_window_title(void) { return hos_game_title[0] ? hos_game_title : "Hookshot"; }
+/* (raiders, T16) the per-user data folder's name (Linux: $XDG_DATA_HOME/<it>, ~/.local/share/<it>): games/<id>/game.py
+   DATA_DIR, "hookshot" when the image names none. A second game from this runtime keeps its saves apart from Ocarina's */
+const char *hos_game_data_dir_name(void) { return hos_game_data_dir[0] ? hos_game_data_dir : "hookshot"; }
 
 /* gen/hos_image.c (build.py lift) */
 extern const uint64_t hos_main_stack_size;
@@ -243,7 +246,9 @@ void hos_update_check(void);   /* (host/hos_update.c) */
 #ifndef _WIN32
 /* (linux) Saves live in $XDG_DATA_HOME/hookshot (~/.local/share/hookshot), so a rebuilt game folder still finds them.
    A user/ folder beside the executable from before is moved there the first time, entry by entry. Anything that
-   cannot be moved keeps the old place. --user still wins. */
+   cannot be moved keeps the old place. --user still wins.
+   (raiders, T16) The folder is the game's own, hos_game_data_dir_name() ("hookshot" for Ocarina, "raiders-recomp"),
+   and the user/ folder's move is Ocarina's only: no other game's folder ever kept its saves there. */
 static int is_dir(const char *p) {
     const DWORD a = GetFileAttributesA(p);
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY);
@@ -307,9 +312,10 @@ static const char *saves_dir(const char *beside) {
         snprintf(dir, sizeof dir, "%s/.local/share", home);
     } else return beside;
     CreateDirectoryA(dir, NULL);
-    snprintf(dir + strlen(dir), sizeof dir - strlen(dir), "/hookshot");
+    snprintf(dir + strlen(dir), sizeof dir - strlen(dir), "/%s", hos_game_data_dir_name());   /* (raiders) */
     CreateDirectoryA(dir, NULL);
     if (GetFileAttributesA(dir) == INVALID_FILE_ATTRIBUTES) return beside;
+    if (!hos_game_is("oot")) return dir;   /* (raiders) the move below is Ocarina's */
     char pattern[MAX_PATH];
     snprintf(pattern, sizeof pattern, "%s" SEP_S "*", beside);
     WIN32_FIND_DATAA fd;
@@ -400,8 +406,15 @@ static void load_hookshot_env(void) {
     }
     FILE *f = fopen(path, "r");
     if (!f) return;
-    char line[512];
+    /* (raiders, T16) was 512: a longer line (a test run's HOS_INPUT_SCRIPT) was cut there without a word, and its tail
+       read as a line of its own. A line longer than this is left out whole, and said. */
+    char line[16384];
     while (fgets(line, sizeof line, f)) {
+        if (!strchr(line, '\n') && !feof(f)) {
+            for (int ch; (ch = fgetc(f)) != EOF && ch != '\n';) {}
+            fprintf(stderr, "env: %s: a line longer than %d characters left out\n", path, (int)sizeof line - 2);
+            continue;
+        }
         char *s = line;
         if ((unsigned char)s[0] == 0xEF && (unsigned char)s[1] == 0xBB && (unsigned char)s[2] == 0xBF) s += 3;   /* (Notepad's BOM) */
         while (*s == ' ' || *s == 9) s++;
