@@ -42,6 +42,7 @@ flowchart LR
     T15 --> T17[T17 gameplay correctness]
     T16 --> T17
     T17 --> T17a[T17a UI and overlay rendering]
+    T17a --> T17b[T17b missing ground]
     T17 --> T18[T18 audio]
     T17 --> T19[T19 movies]
     T17 --> T20[T20 memory]
@@ -49,6 +50,7 @@ flowchart LR
     T17 --> T22[T22 CPU performance]
     T20 --> T23[T23 stability soak]
     T17a --> T23
+    T17b --> T23
     T21 --> T23
     T22 --> T23
     T23 --> T24[T24 packaging]
@@ -115,10 +117,12 @@ returns. Owners by namespace: the "Ownership of traced calls" table in `tasks/T1
   average fps and RSS in that area and confirms ink behaviour (swimming in own ink, slowed in enemy ink).
 
 ### M6 · Audio, movies and rendering
-- **Tasks:** T18, T19, T17a (added after T17: no other task covered rendering correctness).
+- **Tasks:** T18, T19, T17a (added after T17: no other task covered rendering correctness), T17b (added after T17a's
+  user check: draws left out after the gear menu).
 - **Exit:** music and effects play without crackle for ten minutes in the first area; one of the
   `UI/Movie/Gadget_*.webm` clips plays in its menu at normal speed; the HUD shows no flicker in normal play and the
-  scene keeps its brightness after the gear menu (T17a's criteria).
+  scene keeps its brightness after the gear menu (T17a's criteria); the ground stays visible after the gear menu, with no
+  world flicker (T17b's criteria).
 
 ### M7 · Deck stability and performance  — **Gate 2 (verdict)**
 - **Tasks:** T20, T21, T22, T23.
@@ -175,3 +179,7 @@ returns. Owners by namespace: the "Ownership of traced calls" table in `tasks/T1
   traced. T13 depends on T09a and owns the stop-by-stop loop; an ownership table for traced calls is in T10.
   M3's "no blocking entry before the first present" moved to M4. T09 must be merged into `main` before T09a.
   Also `02-gap-analysis.md` §3 (`nn::pl` row) and `tasks/README.md`.
+- 2026-11-13 (after T17a): new task **T17b**. T17a fixed the UI flicker and the overlays. Its user check (`check3`) found
+  the ground missing after the gear menu, with world flicker from then on: 36-107 indexed draws a frame left out because
+  their index buffer is in no imported pool (`reports/T17a-ui-rendering.md`, step 6). T17b owns it, before T23. M6 lists
+  it, and its exit gains T17b's criteria.
