@@ -100,6 +100,59 @@ class RegionTests(unittest.TestCase):
         self.assertIn("region hud_bottom_left (rows 7-8, columns 0-4): 1, 250.0 per 1,000", later.stdout)
         self.assertNotIn("region corner", later.stdout)
 
+    # (raiders, T17b) the world: events outside the HUD's blocks
+    def test_world_mask(self):
+        m = log.world_mask()
+        self.assertEqual(m.shape, (9, 16))
+        self.assertEqual(int(m.sum()), 144 - 10 - 3 - 8)   # bottom-left HUD, prompts, counter
+        for r, c in ((7, 0), (8, 4), (8, 13), (8, 15), (0, 12), (1, 15)):
+            self.assertFalse(m[r, c], (r, c))
+        for r, c in ((7, 5), (8, 12), (7, 13), (2, 12), (3, 8), (0, 0)):
+            self.assertTrue(m[r, c], (r, c))
+
+    def test_parse_span(self):
+        self.assertEqual(log.parse_span("60-270"), (60.0, 270.0))
+        self.assertEqual(log.parse_span("0.5-1"), (0.5, 1.0))
+        for bad in ("270-60", "5-5", "a-b", "5", "-1-3"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                log.parse_span(bad)
+
+    def test_world_counts(self):
+        # (seconds in, brighter blocks, darker blocks) per eligible triplet; each sign with a block is an event
+        world = [(1.0, 3, 0), (5.0, 0, 0), (12.0, 1, 4), (31.0, 9, 3), (40.0, 0, 36), (95.0, 2, 0)]
+        n, sizes, bins, spans = log.world_counts(world, 10.0, 30.0, [(0.0, 30.0), (30.0, 60.0), (200.0, 300.0)])
+        self.assertEqual(n, 4)   # from 10 s: 12, 31, 40, 95
+        self.assertEqual(sizes[(1, 2)], (2, 500.0))     # 12 s brighter 1, 95 s brighter 2
+        self.assertEqual(sizes[(3, 8)], (2, 500.0))     # 12 s darker 4, 31 s darker 3
+        self.assertEqual(sizes[(9, 35)], (1, 250.0))    # 31 s brighter 9
+        self.assertEqual(sizes[(36, 144)], (1, 250.0))  # 40 s darker 36
+        self.assertEqual(bins, [2, 3, 0, 0])            # bins of 30 s from 0, events of 3+ blocks; 95 s: 2 blocks only
+        self.assertEqual(spans, [(3, 2, 2000.0 / 3), (2, 3, 1500.0), (0, 0, 0.0)])
+        self.assertEqual(log.world_counts([], 0.0, 30.0, []), (0, {k: (0, 0.0) for k in log.WORLD_SIZES}, [], []))
+
+    def test_cli_world(self):
+        frames = [grey() for _ in range(10)]
+        paint(frames[2], 7, 1, 250)   # HUD only: not the world
+        for c in (5, 6, 7):
+            paint(frames[3], 2, c, 250)   # 3 world blocks brighter
+        for c in (0, 1, 2, 3):
+            paint(frames[5], 4, c, 0)     # 4 world blocks darker
+        paint(frames[5], 0, 13, 250)      # and a counter block: not the world
+        self.write(frames)
+        result = self.run_cli("--regions", "0", "--world-bin", "4", "--span", "0-4", "--span", "4-9")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = result.stdout
+        # centres 1-8, at 1-8 s after the first record
+        self.assertIn("world (outside the HUD blocks) from 0.0 s: 8 eligible triplets; by blocks: 1-2 0 (0.0 per 1,000), "
+                      "3-8 2 (250.0 per 1,000), 9-35 0 (0.0 per 1,000), 36-144 0 (0.0 per 1,000)", out)
+        self.assertIn("world events of 3+ blocks per 4 s: 1 1 0", out)   # 3 s; 5 s; nothing in 8 s
+        self.assertIn("world span 0-4 s: 3 eligible triplets, 1 with 3+ blocks, 333.3 per 1,000", out)
+        self.assertIn("world span 4-9 s: 5 eligible triplets, 1 with 3+ blocks, 200.0 per 1,000", out)
+        bad = self.run_cli("--regions", "0", "--span", "9-4")
+        self.assertEqual(bad.returncode, 2)
+        self.assertIn("a span is A-B", bad.stderr)
+        self.assertNotIn("Traceback", bad.stderr)
+
     def test_cli_without_regions_unchanged_and_bad_region(self):
         frames = [grey() for _ in range(4)]
         paint(frames[1], 0, 0, 250)
@@ -107,6 +160,7 @@ class RegionTests(unittest.TestCase):
         plain = self.run_cli()
         self.assertEqual(plain.returncode, 0, plain.stderr)
         self.assertNotIn("region", plain.stdout)
+        self.assertNotIn("world", plain.stdout)
         self.assertIn("frame 1 (game) brighter 1 blocks, peak 150", plain.stdout)
         bad = self.run_cli("--regions", "0", "--region", "x=0-20,0-1")
         self.assertEqual(bad.returncode, 2)

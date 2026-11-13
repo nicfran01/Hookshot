@@ -49,6 +49,7 @@ std::mutex bg_mu;std::condition_variable bg_done_cv,bg_cv;std::vector<uint64_t> 
 std::deque<std::pair<uint64_t,uint64_t>> bg_queue;
 void bg_start() { bg_starts++; } // Recording spy: no thread or GPU import is started.
 void logf(const char*,...){} void bg_drain(){}
+int64_t presents_now=0; bool pool_log_on(){return false;} bool pool_log_line(){return false;} // (raiders, T17b) RX_VK_POOL_LOG, off
 void guest_pages_set(uint64_t,uint64_t,uint64_t){}
 void retire_pool(std::map<uint64_t,Pool>::iterator it) { imported.erase(it);last_pool=nullptr;std::fill(std::begin(pool_cache),std::end(pool_cache),nullptr);retires++; }
 enum { VK_SUCCESS = 0 };

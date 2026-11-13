@@ -6522,7 +6522,10 @@ void draw(VkCommandBuffer cmd, NvnState& s, const DrawArgs& d) {
         {
             FINE_SCOPE(FT_VERTEX);
             ib = gpu_buffer_bind(d.ibuf, (uint64_t)std::max(d.count, 1) * unit, false);
-            if (!ib) SKIP_HERE();
+            if (!ib) {   // ((raiders, T17b) RX_VK_POOL_LOG=1: why, vk_memory.cpp)
+                memory_explain_unbound(d.ibuf, (uint64_t)std::max(d.count, 1) * unit, cp->key);
+                SKIP_HERE();
+            }
             FINE_N(FC_IBIND, 1);
             bind_index(cmd, ib.buffer, ib.offset, itype);
         }

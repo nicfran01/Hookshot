@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <vector>
+#include <iterator>   // ((raiders, T17b) std::back_inserter)
 #include <condition_variable>
 #include "vk_menu.h"
 #include <deque>
@@ -560,6 +561,48 @@ bool memory_init() {
     return true;
 }
 
+extern int64_t presents_now;   // (vk_replay.cpp)
+namespace {
+/// (raiders, T17b) RX_VK_POOL_LOG=1: the pool table's changes, the imports made, retired and given back, and why a draw's
+/// index buffer was in no imported pool (memory_explain_unbound). With HOS_POOL_LOG=1, the host's side (host/nvdrv.c,
+/// host/nvn_native.c). Diagnostics: at most kPoolLogLines lines of the table's changes in a run.
+constexpr int64_t kPoolLogLines = 20000;
+bool pool_log_on() {
+    static const bool on = [] { const char* e = getenv("RX_VK_POOL_LOG"); return e && atoi(e) != 0; }();
+    return on;
+}
+/// (raiders, T17b) Every pool the host has, into `list` (grown as needed); the count. host->gpu_pools writes at most the
+/// list's length and returns how many it wrote, so a full list is asked again, twice as long. The list was 8192 long: Raiders
+/// has ~8,800 pools live in the hub and more after a level, and the pools past the 8192th (the highest addresses) left the
+/// table while the game still drew from them. A lookup missing every cache then found no pool, and the draws whose index
+/// buffer was there were left out (vk_draw.cpp): the ground missing after the gear menu, world flicker. At most kPoolListMax.
+constexpr size_t kPoolListMax = 1u << 20;
+template <class Get>
+int read_pool_list(std::vector<std::array<uint64_t, 2>>& list, Get get) {
+    if (list.empty()) list.resize(8192);
+    for (;;) {
+        const int n = get(reinterpret_cast<uint64_t(*)[2]>(list.data()), (int)list.size());
+        if (n < (int)list.size() || list.size() >= kPoolListMax) return std::max(0, std::min(n, (int)list.size()));
+        list.resize(list.size() * 2);
+    }
+}
+int host_pool_list(std::vector<std::array<uint64_t, 2>>& list) {
+    const size_t was = list.size();
+    const int n = read_pool_list(list, [](uint64_t (*out)[2], int max) { return host->gpu_pools(out, max); });
+    if (list.size() > was && was) {
+        static std::atomic<int> told{0};
+        if (told++ < 8) logf("vk: %d pools: the list of the host's pools grown to %zu", n, list.size());
+    }
+    return n;
+}
+bool pool_log_line() {   // (one more line of the table's changes allowed)
+    static std::atomic<int64_t> n{0};
+    const int64_t k = n++;
+    if (k == kPoolLogLines) logf("vk: pool log: %lld lines of the table's changes: no more", (long long)kPoolLogLines);
+    return k < kPoolLogLines;
+}
+} // namespace
+
 /// Refresh the guest's pool table (no Vulkan work: pools are imported as they are used)
 void memory_sync() {
     static std::mutex sync_mu;   // (called from every thread that touches memory)
@@ -568,7 +611,7 @@ void memory_sync() {
     if (g == generation) return;
     generation = g;
     static thread_local std::vector<std::array<uint64_t, 2>> list(8192);
-    const int n = host->gpu_pools(reinterpret_cast<uint64_t(*)[2]>(list.data()), (int)list.size());
+    const int n = host_pool_list(list);   // ((raiders, T17b) all of them: read_pool_list)
     std::vector<GuestPool> next;
     next.reserve(n > 0 ? (size_t)n : 0);
     for (int i = 0; i < n; i++) {
@@ -580,6 +623,24 @@ void memory_sync() {
     }
     std::sort(next.begin(), next.end(), [](const GuestPool& a, const GuestPool& b) { return a.lo < b.lo; });
     std::lock_guard lk(pools_mu);
+    if (pool_log_on()) {   // ((raiders, T17b) the ranges that left the table and those that came in, and nested entries)
+        auto less = [](const GuestPool& a, const GuestPool& b) { return a.lo != b.lo ? a.lo < b.lo : a.hi < b.hi; };
+        std::vector<GuestPool> a = guest_pools, b = next, gone, came;
+        std::sort(a.begin(), a.end(), less), std::sort(b.begin(), b.end(), less);
+        std::set_difference(a.begin(), a.end(), b.begin(), b.end(), std::back_inserter(gone), less);
+        std::set_difference(b.begin(), b.end(), a.begin(), a.end(), std::back_inserter(came), less);
+        size_t nested = 0;
+        uint64_t reach = 0;
+        for (const GuestPool& p : b) nested += p.lo < reach, reach = std::max(reach, p.hi);
+        for (const GuestPool& p : gone)
+            if (pool_log_line())
+                logf("vk: pool log: present %lld: table - %#llx..%#llx (%zu entries, %zu nested)", (long long)presents_now,
+                     (unsigned long long)p.lo, (unsigned long long)p.hi, b.size(), nested);
+        for (const GuestPool& p : came)
+            if (pool_log_line())
+                logf("vk: pool log: present %lld: table + %#llx..%#llx (%zu entries, %zu nested)", (long long)presents_now,
+                     (unsigned long long)p.lo, (unsigned long long)p.hi, b.size(), nested);
+    }
     guest_pools.swap(next);
     guest_pools_gen.fetch_add(1, std::memory_order_relaxed);
     last_pool = nullptr;
@@ -933,7 +994,7 @@ void refresh_pool_ranges_locked() {   // (cap_ranges_mu held)
     if (g == pool_cap_gen && captures_made - pool_cap_built < 64) return;   // (and every 64: the old ones out)
     pool_cap_gen = g, pool_cap_built = captures_made;
     static std::vector<std::array<uint64_t, 2>> list(8192);
-    const int n = host->gpu_pools(reinterpret_cast<uint64_t(*)[2]>(list.data()), (int)list.size());
+    const int n = host_pool_list(list);   // ((raiders, T17b) all of them: read_pool_list)
     std::vector<std::pair<uint64_t, uint64_t>> v;
     std::unordered_map<uint64_t, uint64_t> seen;
     seen.reserve((size_t)std::max(n, 0));
@@ -2034,6 +2095,10 @@ Pool* pool_lookup(uint64_t guest, uint64_t size) {
                      (unsigned long long)hi, n, total_ms);
         }
         if (!ok) {
+            if (pool_log_on() && pool_log_line())   // ((raiders, T17b) RX_VK_POOL_LOG: every one, on hold or not)
+                logf("vk: pool log: present %lld: import for %#llx+%#llx refused (%s, VkResult %d)", (long long)presents_now,
+                     (unsigned long long)range.lo, (unsigned long long)(range.hi - range.lo),
+                     import_cooling ? "on hold after a failure" : "failed", (int)import_result);
             if (!import_cooling && failures++ < 16) {
                 if (import_result != VK_SUCCESS)
                     logf("vk: pool %#llx+%#llx not imported (VkResult %d)", (unsigned long long)range.lo,
@@ -2050,6 +2115,10 @@ Pool* pool_lookup(uint64_t guest, uint64_t size) {
         }
         imp = imported.emplace(p.lo, p).first;
         guest_pages_set(p.lo, p.hi, p.address);
+        if (pool_log_on() && pool_log_line())   // ((raiders, T17b) RX_VK_POOL_LOG)
+            logf("vk: pool log: present %lld: import %#llx..%#llx made for %#llx+%#llx (%zu taken in, %zu live)",
+                 (long long)presents_now, (unsigned long long)p.lo, (unsigned long long)p.hi, (unsigned long long)range.lo,
+                 (unsigned long long)(range.hi - range.lo), overlapped.size(), imported.size());
         if (chunk) prefetch_chunks(p.lo, p.hi, chunk);
         if (overlapped.size() > 1) {
             static int logged_merge;
@@ -2293,6 +2362,10 @@ void retire_pool(std::map<uint64_t, Pool>::iterator it) {
     static int logged;
     if (logged++ < 8 || retired_pools.size() % 64 == 0)
         logf("vk: pool %#llx remade larger (%zu retired)", (unsigned long long)old->lo, retired_pools.size());
+    if (pool_log_on() && pool_log_line())   // ((raiders, T17b) RX_VK_POOL_LOG)
+        logf("vk: pool log: present %lld: import %#llx..%#llx retired (taken in by a new import; in use until %llu)",
+             (long long)presents_now, (unsigned long long)old->lo, (unsigned long long)old->hi,
+             (unsigned long long)old->retired_value);
 }
 int64_t st_sync_bytes, st_sync_copies, st_wb_bytes, st_mirrors;
 int64_t st_sync_live_pages, st_sync_cap_pages, st_sync_old_pages;   // (mirror syncs' dirty pages: live / this submit's capture / an earlier one's)
@@ -2574,6 +2647,64 @@ int memory_guest_imported(uint64_t lo, uint64_t hi) {
     return 0;
 }
 
+/// (raiders, T17b) RX_VK_POOL_LOG=1: a draw left out because gpu_buffer_bind found no pool for its index buffer (vk_draw.cpp):
+/// the address, the program, and what the pool table and the imports hold there. The first 64, then one in 4096; the table
+/// and the imports within 256 MB of it the first 4 times and whenever the table changed since (16 times).
+void memory_explain_unbound(uint64_t gpu, uint64_t size, uint64_t program) {
+    if (!pool_log_on()) return;
+    static std::atomic<int64_t> seen{0};
+    const int64_t k = seen++;
+    if (k >= 64 && k % 4096) return;
+    uint64_t guest = gpu;
+    if (gpu >= (1ull << 40)) {
+        uint64_t avail = 0;
+        if (!host->gpu_ptr(gpu, &avail) || avail < size) {
+            logf("vk: pool log: present %lld: indexed draw left out (program %016llx, %lld so): index buffer %#llx+%#llx in a "
+                 "virtual pool, %s", (long long)presents_now, (unsigned long long)program, (long long)k + 1,
+                 (unsigned long long)gpu, (unsigned long long)size, avail ? "mapped shorter than the draw" : "not mapped");
+            return;
+        }
+        guest = host->gpu_guest(gpu);
+    }
+    std::lock_guard lk(pools_mu);
+    auto it = std::upper_bound(guest_pools.begin(), guest_pools.end(), guest, [](uint64_t a, const GuestPool& p) { return a < p.lo; });
+    const GuestPool below = it != guest_pools.begin() ? *std::prev(it) : GuestPool{};
+    const GuestPool above = it != guest_pools.end() ? *it : GuestPool{};
+    int holders = 0;
+    GuestPool holder{};
+    for (const GuestPool& p : guest_pools)
+        if (p.lo <= guest && size <= p.hi - guest && guest < p.hi) holders++, holder = p;
+    const Pool* cover = nullptr;
+    if (auto c = imported.upper_bound(guest); c != imported.begin() && std::prev(c)->second.lo <= guest &&
+                                              std::prev(c)->second.hi >= guest + size)
+        cover = &std::prev(c)->second;
+    logf("vk: pool log: present %lld: indexed draw left out (program %016llx, %lld so): index buffer %#llx+%#llx; table %zu "
+         "entries, below it %#llx..%#llx, above it %#llx..%#llx, %d hold it (%#llx..%#llx); import over it %#llx..%#llx; "
+         "%d import failures",
+         (long long)presents_now, (unsigned long long)program, (long long)k + 1, (unsigned long long)gpu,
+         (unsigned long long)size, guest_pools.size(), (unsigned long long)below.lo, (unsigned long long)below.hi,
+         (unsigned long long)above.lo, (unsigned long long)above.hi, holders, (unsigned long long)holder.lo,
+         (unsigned long long)holder.hi, (unsigned long long)(cover ? cover->lo : 0), (unsigned long long)(cover ? cover->hi : 0),
+         failures);
+    static int dumps = 0;
+    static uint64_t dumped_gen = 0;
+    const uint64_t gen = guest_pools_gen.load(std::memory_order_relaxed);
+    if (dumps >= 16 || (dumps >= 4 && gen == dumped_gen)) return;
+    dumps++, dumped_gen = gen;
+    const uint64_t wlo = guest > (256ull << 20) ? guest - (256ull << 20) : 0, whi = guest + (256ull << 20);
+    for (const GuestPool& p : guest_pools)
+        if (p.hi > wlo && p.lo < whi)
+            logf("vk: pool log:   table %#llx..%#llx", (unsigned long long)p.lo, (unsigned long long)p.hi);
+    for (const auto& [lo, p] : imported)
+        if (p.hi > wlo && p.lo < whi)
+            logf("vk: pool log:   import %#llx..%#llx (last bound by %llu)", (unsigned long long)p.lo, (unsigned long long)p.hi,
+                 (unsigned long long)p.last_value);
+    for (const auto& nh : retired_pools)
+        if (nh.mapped().hi > wlo && nh.mapped().lo < whi)
+            logf("vk: pool log:   retired %#llx..%#llx (%s)", (unsigned long long)nh.mapped().lo, (unsigned long long)nh.mapped().hi,
+                 nh.mapped().memory ? "still imported" : "given back");
+}
+
 bool mirror_make(Pool& pool);   // (below)
 /// The mirrored pools, for the submit-time capture (memory_capture_submit) (pools_mu held)
 void publish_cap_ranges() {
@@ -2846,6 +2977,9 @@ void retired_imports_give_back() {   // (pools_mu held)
             p.last_value <= mem_completed) {
             dead_imports.push_back({p.buffer, p.memory, std::max(mem_rec_value, p.last_value), p.hi - p.lo, std::move(p.pieces)});
             p.pieces.clear();
+            if (pool_log_on() && pool_log_line())   // ((raiders, T17b) RX_VK_POOL_LOG)
+                logf("vk: pool log: present %lld: retired import %#llx..%#llx given back (the GPU is past %llu)",
+                     (long long)presents_now, (unsigned long long)p.lo, (unsigned long long)p.hi, (unsigned long long)mem_completed);
             p.buffer = VK_NULL_HANDLE, p.memory = VK_NULL_HANDLE, p.address = 0;
             pools_gen++;
             continue;

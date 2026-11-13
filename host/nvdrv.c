@@ -142,9 +142,38 @@ uint32_t hos_gpu_maps_generation(void) { return (uint32_t)maps_generation; }
 typedef struct { uint64_t lo, hi; int n; } Tracked;
 static Tracked *tracked;
 static int ntracked, captracked;
+/* (raiders, T17b) HOS_POOL_LOG=1: what a native pool's initialize or finalize did to the GPU mappings (from which
+   hos_gpu_pools gives the renderer its pool table): an entry of another pool replaced or dropped, or a finalize that
+   removed another pool's entry or none. LOCK held */
+extern volatile LONG64 hos_present_count;   /* display.c */
+static int pool_log = -1;
+static void pool_log_effect(uint64_t guest, uint64_t size, int on) {
+    if (pool_log < 0) pool_log = getenv("HOS_POOL_LOG") && atoi(getenv("HOS_POOL_LOG")) != 0;
+    if (!pool_log) return;
+    static int lines;
+    if (lines >= 20000) return;
+    const long long present = (long long)hos_present_count;
+    const int i = map_floor(guest);
+    const int at = i >= 0 && maps[i].va == guest;
+    if (!on) {
+        if (!at) hos_log("nvdrv: pool log: present %lld: finalize %#llx+%#llx: no mapping starts there", present,
+                         (unsigned long long)guest, (unsigned long long)size), lines++;
+        else if (maps[i].size != size || maps[i].guest != guest)
+            hos_log("nvdrv: pool log: present %lld: finalize %#llx+%#llx removes another pool's mapping (+%#llx)", present,
+                    (unsigned long long)guest, (unsigned long long)size, (unsigned long long)maps[i].size), lines++;
+        return;
+    }
+    if (at) hos_log("nvdrv: pool log: present %lld: initialize %#llx+%#llx replaces the mapping there (+%#llx)", present,
+                    (unsigned long long)guest, (unsigned long long)size, (unsigned long long)maps[i].size), lines++;
+    for (int k = i + 1; k < nmaps && maps[k].va < guest + size; k++)
+        hos_log("nvdrv: pool log: present %lld: initialize %#llx+%#llx drops the mapping %#llx+%#llx inside it", present,
+                (unsigned long long)guest, (unsigned long long)size, (unsigned long long)maps[k].va,
+                (unsigned long long)maps[k].size), lines++;
+}
 void hos_gpu_track(uint64_t guest, uint64_t size, int on) {
     const uint64_t lo = guest & ~0xFFFULL, hi = (guest + size + 0xFFF) & ~0xFFFULL;
     LOCK();
+    pool_log_effect(guest, size, on);   /* ((raiders, T17b) HOS_POOL_LOG) */
     if (on) map_add(guest, size, guest);
     else map_remove(guest);
     int i = 0;

@@ -274,6 +274,17 @@ NV(nvnMemoryPoolBuilderSetDefaults) { memset(P(0), 0, sizeof(nvn_pool_builder));
 NV(nvnMemoryPoolBuilderSetDevice) { ((nvn_pool_builder *)P(0))->dev = P(1); }
 NV(nvnMemoryPoolBuilderSetStorage) { ((nvn_pool_builder *)P(0))->mem = U64(1); ((nvn_pool_builder *)P(0))->size = U64(2); }
 NV(nvnMemoryPoolBuilderSetFlags) { ((nvn_pool_builder *)P(0))->flags = U32(1); }
+/* (raiders, T17b) HOS_POOL_LOG=1: the game's pool initialize and finalize calls (range, flags, present), for the renderer's
+   pool table (host/nvdrv.c hos_gpu_pools; RX_VK_POOL_LOG on the renderer's side). At most 50000 lines */
+static void pool_log_call(const char *what, const nvn_pool *o) {
+    static int on = -1, lines;
+    if (on < 0) on = getenv("HOS_POOL_LOG") && atoi(getenv("HOS_POOL_LOG")) != 0;
+    if (!on || lines >= 50000) return;
+    extern volatile LONG64 hos_present_count;   /* display.c */
+    lines++;
+    hos_log("nvn: pool log: present %lld: %s %#llx..%#llx (flags %#x)", (long long)hos_present_count, what,
+            (unsigned long long)o->gpu, (unsigned long long)(o->gpu + o->size), o->flags);
+}
 NV(nvnMemoryPoolInitialize) {
     const nvn_pool_builder *b = (const nvn_pool_builder *)P(1);
     nvn_pool *o = (nvn_pool *)P(0);
@@ -310,6 +321,7 @@ NV(nvnMemoryPoolInitialize) {
     o->gpu = b->mem;
     hos_gpu_track(o->gpu, o->size, 1);   /* (the CPU's writes to it reach the renderer through write watch) */
     rx_nvn_pool_created(o->gpu, o->size);
+    pool_log_call("initialize", o);   /* ((raiders, T17b) HOS_POOL_LOG) */
     OLOG("pool %#llx size %#llx flags %#x", (unsigned long long)o->gpu, (unsigned long long)o->size, o->flags);
     RET(1);
 }
@@ -346,6 +358,7 @@ NV(nvnMemoryPoolFinalize) {
         InterlockedIncrement(&vmap_gen);
         ReleaseSRWLockExclusive(&vmap_lock);
     } else if (o->mem) {
+        pool_log_call("finalize", o);   /* ((raiders, T17b) HOS_POOL_LOG) */
         hos_gpu_track(o->gpu, o->size, 0);
     }
     o->magic = 0;
