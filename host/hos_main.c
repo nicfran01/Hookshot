@@ -406,8 +406,15 @@ static void load_hookshot_env(void) {
     }
     FILE *f = fopen(path, "r");
     if (!f) return;
-    char line[512];
+    /* (raiders, T16) was 512: a longer line (a test run's HOS_INPUT_SCRIPT) was cut there without a word, and its tail
+       read as a line of its own. A line longer than this is left out whole, and said. */
+    char line[16384];
     while (fgets(line, sizeof line, f)) {
+        if (!strchr(line, '\n') && !feof(f)) {
+            for (int ch; (ch = fgetc(f)) != EOF && ch != '\n';) {}
+            fprintf(stderr, "env: %s: a line longer than %d characters left out\n", path, (int)sizeof line - 2);
+            continue;
+        }
         char *s = line;
         if ((unsigned char)s[0] == 0xEF && (unsigned char)s[1] == 0xBB && (unsigned char)s[2] == 0xBF) s += 3;   /* (Notepad's BOM) */
         while (*s == ' ' || *s == 9) s++;
