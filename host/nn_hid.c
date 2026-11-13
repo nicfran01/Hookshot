@@ -933,22 +933,72 @@ static void npad_states(Ctx *c) {
     }
     RET(count);
 }
-HLE(_ZN2nn3hid13GetNpadStatesEPNS0_16NpadFullKeyStateEiRKj) { npad_states(c); }
-HLE(_ZN2nn3hid13GetNpadStatesEPNS0_17NpadHandheldStateEiRKj) { npad_states(c); }
-HLE(_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyDualStateEiRKj) { npad_states(c); }
-HLE(_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyLeftStateEiRKj) { npad_states(c); }
-HLE(_ZN2nn3hid13GetNpadStatesEPNS0_17NpadJoyRightStateEiRKj) { npad_states(c); }
+/* (raiders, T15) Which state type and npad id the game reads, and the Npad set-up it asks for, each logged once: what a
+   game expects of an undocked console (Handheld style on npad 0x20, or FullKey on No.1) is read from these lines */
+static void npad_seen(const char *what, uint32_t value, uint64_t lr) {
+    static struct { const char *what; uint32_t value; } seen[32];
+    static int nseen;
+    static SRWLOCK lock = SRWLOCK_INIT;
+    int known = 0, added = 0;
+    AcquireSRWLockExclusive(&lock);
+    for (int i = 0; i < nseen; i++) known |= seen[i].what == what && seen[i].value == value;
+    if (!known && nseen < 32) seen[nseen].what = what, seen[nseen++].value = value, added = 1;
+    ReleaseSRWLockExclusive(&lock);
+    if (added) hos_log("hid: the game calls %s %#x (lr %#llx)", what, value, (unsigned long long)lr);
+}
+HLE(_ZN2nn3hid13GetNpadStatesEPNS0_16NpadFullKeyStateEiRKj) { npad_seen("GetNpadStates(FullKey), npad", G32(ARG(2)), c->x[30]); npad_states(c); }
+HLE(_ZN2nn3hid13GetNpadStatesEPNS0_17NpadHandheldStateEiRKj) { npad_seen("GetNpadStates(Handheld), npad", G32(ARG(2)), c->x[30]); npad_states(c); }
+HLE(_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyDualStateEiRKj) { npad_seen("GetNpadStates(JoyDual), npad", G32(ARG(2)), c->x[30]); npad_states(c); }
+HLE(_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyLeftStateEiRKj) { npad_seen("GetNpadStates(JoyLeft), npad", G32(ARG(2)), c->x[30]); npad_states(c); }
+HLE(_ZN2nn3hid13GetNpadStatesEPNS0_17NpadJoyRightStateEiRKj) { npad_seen("GetNpadStates(JoyRight), npad", G32(ARG(2)), c->x[30]); npad_states(c); }
 /* GetNpadStyleSet(unsigned int const&) -> BitFlagSet<32, NpadStyleTag> */
-HLE(_ZN2nn3hid15GetNpadStyleSetERKj) { RET(G32(ARG(0)) == NPAD_NO1 ? STYLE_FULLKEY : 0); }
+HLE(_ZN2nn3hid15GetNpadStyleSetERKj) {
+    npad_seen("GetNpadStyleSet, npad", G32(ARG(0)), c->x[30]);   /* (raiders, T15) */
+    RET(G32(ARG(0)) == NPAD_NO1 ? STYLE_FULLKEY : 0);
+}
 
 HLE(_ZN2nn3hid14InitializeNpadEv) {}
 HLE(_ZN2nn3hid18InitializeKeyboardEv) {}
 HLE(_ZN2nn3hid15InitializeMouseEv) {}
 HLE(_ZN2nn3hid14DisconnectNpadERKj) {}
-HLE(_ZN2nn3hid18SetNpadJoyHoldTypeENS0_15NpadJoyHoldTypeE) {}
-HLE(_ZN2nn3hid22SetSupportedNpadIdTypeEPKjm) {}
-HLE(_ZN2nn3hid24SetSupportedNpadStyleSetENS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE) {}
+/* (raiders, T15) the set-up calls are still not acted on, only logged once per value (npad_seen) */
+HLE(_ZN2nn3hid18SetNpadJoyHoldTypeENS0_15NpadJoyHoldTypeE) { npad_seen("SetNpadJoyHoldType", (uint32_t)ARG(0), c->x[30]); }
+HLE(_ZN2nn3hid22SetSupportedNpadIdTypeEPKjm) {   /* (unsigned int const* ids, unsigned long count) */
+    const uint64_t n = ARG(1) > 16 ? 16 : ARG(1);
+    npad_seen("SetSupportedNpadIdType, count", (uint32_t)ARG(1), c->x[30]);
+    for (uint64_t i = 0; i < n; i++) npad_seen("SetSupportedNpadIdType, id", G32(ARG(0) + 4 * i), c->x[30]);
+}
+HLE(_ZN2nn3hid24SetSupportedNpadStyleSetENS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE) {
+    npad_seen("SetSupportedNpadStyleSet, styles", (uint32_t)ARG(0), c->x[30]);
+}
 HLE(_ZN2nn3hid18StartSixAxisSensorERKNS0_19SixAxisSensorHandleE) {}
+
+/* (raiders, T15) GyroscopeZeroDriftMode {Loose 0, Standard 1, Tight 2}: how hard the console pulls a resting gyroscope's
+   reading to zero. Standard is the console's default (as libnx and yuzu have it). The host learns the drift itself (host/hos_motion.h), so the mode
+   is only remembered: the game reads back what it set. Handles are GetSixAxisSensorHandles' 0x100 + n. */
+static volatile LONG zero_drift_mode[16] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+HLE(_ZN2nn3hid25GetGyroscopeZeroDriftModeERKNS0_19SixAxisSensorHandleE) {
+    RET((uint32_t)zero_drift_mode[G32(ARG(0)) & 15]);
+}
+HLE(_ZN2nn3hid25SetGyroscopeZeroDriftModeERKNS0_19SixAxisSensorHandleERKNS0_22GyroscopeZeroDriftModeE) {
+    const uint32_t mode = G32(ARG(1));
+    if (mode <= 2) InterlockedExchange(&zero_drift_mode[G32(ARG(0)) & 15], (LONG)mode);
+}
+
+/* (raiders, T15) The Joy-Con 2 mouse (Switch 2: "Jcms", read through "Nmouse"; refs/Recompia/runtime/docs/hid_mouse_sw2.md)
+   is not there: no Joy-Con 2 is attached, so no mouse is ever listed. InitializeJcms(void* work, size_t) takes a work
+   buffer the service would map; nothing is mapped. The handle and state calls answer "none". */
+HLE(_ZN2nn3hid14InitializeJcmsEPvm) {}
+HLE(_ZN2nn3hid12FinalizeJcmsEv) {}
+HLE(_ZN2nn3hid9StartJcmsERKNS0_10JcmsHandleE) {}
+HLE(_ZN2nn3hid8StopJcmsERKNS0_10JcmsHandleE) {}
+HLE(_ZN2nn3hid13GetJcmsHandleERKjRKNS0_8JcmsTypeE) { RET(0); }   /* (a handle no state belongs to) */
+HLE(_ZN2nn3hid13GetJcmsStatesEPNS0_9JcmsStateEiRKNS0_10JcmsHandleE) { RET(0); }   /* (no states written) */
+HLE(_ZN2nn3hid16GetNmouseHandlesEPNS0_12NmouseHandleEij) { RET(0); }   /* (no mouse on this npad) */
+HLE(_ZN2nn3hid16GetNmouseTypeSetEPNS_4util10BitFlagSetILi32ENS0_10NmouseTypeEEENS0_12NmouseHandleE) {
+    G32(ARG(0)) = 0;   /* (no type: neither the left nor the right Joy-Con 2) */
+}
+HLE(_ZN2nn3hid14FinalizeNmouseEv) {}
 
 /* ShowControllerSupport(ControllerSupportResultInfo*, ControllerSupportArg const&) -> Result: one player, No.1 */
 HLE(_ZN2nn3hid21ShowControllerSupportEPNS0_27ControllerSupportResultInfoERKNS0_20ControllerSupportArgE) {
