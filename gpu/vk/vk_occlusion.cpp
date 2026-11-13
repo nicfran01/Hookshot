@@ -32,14 +32,33 @@ std::atomic<uint32_t> seq_high{0};               // (the same, for the collector
 thread_local int64_t armed = -1;                 // (the draw's query that draw() is to begin)
 thread_local uint32_t open_query = 0;
 
+std::atomic<int64_t> st_reports{0}, st_dropped{0};
 struct Pending {
     uint32_t first, end;                         // the bracket's numbers so far
     uint64_t addr, ts;
+    int64_t queued_us;                           // (T17: when the replay queued it, for RX_VK_OCC_LAG)
 };
+int64_t now_us() {
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+// (T17) RX_VK_OCC_LAG=<n>: every n reports written, how long after the replay queued them (the game's submit) the collector
+// wrote their words: the median, the 95th percentile and the longest, in ms. The game polls the timestamp word, so a report
+// written within one frame time is there for the game's next frame
+void lag_note(int64_t us) {
+    static const int n = getenv("RX_VK_OCC_LAG") ? std::max(0, atoi(getenv("RX_VK_OCC_LAG"))) : 0;
+    static std::vector<int64_t> lags;
+    if (!n) return;
+    lags.push_back(us);
+    if ((int)lags.size() < n) return;
+    std::sort(lags.begin(), lags.end());
+    logf("vk: occlusion: %d reports written %.2f ms after they were queued (median), 95%% within %.2f ms, the longest %.2f ms; "
+         "%lld given up so far", n, lags[lags.size() / 2] / 1000.0, lags[lags.size() * 95 / 100] / 1000.0, lags.back() / 1000.0,
+         (long long)st_dropped.load());
+    lags.clear();
+}
 std::mutex pend_mu;
 std::condition_variable pend_cv;
 std::vector<Pending> pending;
-std::atomic<int64_t> st_reports{0}, st_dropped{0};
 
 bool on(const NvnState& s) { return (s.samples_passed & kOn) != 0; }
 uint32_t first_of(const NvnState& s) { return (uint32_t)(s.samples_passed >> 32) & kSeqMask; }
@@ -113,6 +132,7 @@ void collector() {
             guest_cpu_write(p.addr, rec, sizeof rec);   // (through the wrapper: the write-back diff's shadows hear of it)
             memory_cpu_owned(host->gpu_guest(p.addr), sizeof rec);
             st_reports++;
+            lag_note(now_us() - p.queued_us);
             if (logged < log_n) {
                 logged++;
                 logf("vk: occlusion: report at %#llx: %llu samples from %u queries", (unsigned long long)p.addr,
@@ -200,7 +220,7 @@ bool occ_report(NvnState& s, uint64_t addr, bool dry) {
     }
     {
         std::lock_guard lk(pend_mu);
-        pending.push_back({first_of(s), next_of(s), addr, ts});
+        pending.push_back({first_of(s), next_of(s), addr, ts, now_us()});
     }
     pend_cv.notify_one();
     return true;

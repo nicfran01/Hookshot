@@ -4,7 +4,9 @@ its three steps (/usr/bin/time -v: wall time and peak memory) and stops at the f
 the game's sockets and its classifier (awk) fails a non-loopback peer and lists Unix sockets. The run passes --args
 words to the executable after its own arguments and notes the peak resident set (T12: --prepare-shaders), checked by running
 the Deck side of run.sh on a stand-in executable. steam_launch.sh (T15), a Steam shortcut's target, starts the same image
-with its switches and, with --raw-deck-pad, takes only the Deck's own controller off Steam's SDL ignore list. bash -n on
+with its switches and, with --raw-deck-pad, takes only the Deck's own controller off Steam's SDL ignore list. T17: a relative
+RX_VK_FRAME_LOG / RX_VK_FRAMELOG / HOS_PRESENT_TRACE goes in the run's folder (with the frame log's .go file), --user-from runs
+on a copy of a user folder and leaves the original alone, and --rss samples the game's resident set into rss.txt. bash -n on
 each script where bash exists. No Deck, no game files.
 
     python -I -B tests/test_deck_scripts.py
@@ -63,7 +65,7 @@ class DeckScriptTests(unittest.TestCase):
             home.mkdir()
             exe.write_text('#!/bin/sh\nfor a in "$@"; do echo "arg $a"; done\necho "env $HOS_ENV_FILE"\n')
             exe.chmod(0o755)
-            r = subprocess.run([bash, "-s", "--", str(root), "t1", "20", "0", "0", "0", "--prepare-shaders --x", "A=1"],
+            r = subprocess.run([bash, "-s", "--", str(root), "t1", "20", "0", "0", "0", "--prepare-shaders --x", "0", "", "A=1"],
                                input=body, capture_output=True, text=True, env=dict(os.environ, HOME=str(home)), timeout=60)
             self.assertEqual(r.returncode, 0, r.stderr)
             out = root / "work" / "runs" / "t1"
@@ -74,7 +76,7 @@ class DeckScriptTests(unittest.TestCase):
             if shutil.which("python3"):
                 self.assertRegex((out / "peak_rss_kb.txt").read_text(), r"^\d+\n$")
             self.assertIn("exited with 0", r.stdout)
-            r = subprocess.run([bash, "-s", "--", str(root), "t2", "20", "0", "0", "0", ""], input=body, capture_output=True,
+            r = subprocess.run([bash, "-s", "--", str(root), "t2", "20", "0", "0", "0", "", "0", ""], input=body, capture_output=True,
                                text=True, env=dict(os.environ, HOME=str(home)), timeout=60)   # (no --args: as before)
             self.assertEqual(r.returncode, 0, r.stderr)
             args = [l for l in (root / "work/runs/t2/hookshot_log.txt").read_text().splitlines() if l.startswith("arg ")]
@@ -125,6 +127,52 @@ class DeckScriptTests(unittest.TestCase):
         run = (DECK / "run.sh").read_text(encoding="utf-8")
         self.assertIn('args=("$R/work/sa/image/image.bin" --romfs "$R/dump/romfs")', run)   # (the same image as run.sh's)
 
+    # (raiders, T17) relative output files in the run's folder, --user-from's copy, --rss's samples
+    def test_the_run_keeps_its_outputs_and_the_save_apart(self):
+        bash, timeout = shutil.which("bash"), shutil.which("timeout")
+        if not bash or not timeout or not shutil.which("pgrep") or not Path("/proc/self/status").exists():
+            self.skipTest("no bash, timeout, pgrep or /proc")
+        run = (DECK / "run.sh").read_text(encoding="utf-8")
+        body = run[run.index("<<'EOS'\n") + len("<<'EOS'\n"):run.rindex("EOS\n")]
+        with tempfile.TemporaryDirectory() as tmp:
+            root, home, seed = Path(tmp, "r"), Path(tmp, "home"), Path(tmp, "seed")
+            exe = root / "work" / "sa" / "build" / "hookshot"
+            exe.parent.mkdir(parents=True)
+            home.mkdir()
+            (seed / "save" / "u").mkdir(parents=True)
+            (seed / "save" / "u" / "save.dat").write_bytes(b"old")
+            # (the stand-in writes its save through --user, as the game does, and lives long enough for a sample)
+            exe.write_text('#!/bin/bash\nwhile [ $# -gt 0 ]; do [ "$1" = --user ] && u=$2; echo "arg $1"; shift; done\n'
+                           'printf new > "$u/save/u/save.dat"; sleep 6\n')
+            exe.chmod(0o755)
+            r = subprocess.run([bash, "-s", "--", str(root), "t3", "30", "0", "0", "0", "", "1", str(seed),
+                                "RX_VK_FRAME_LOG=frames.csv", "RX_VK_FRAMELOG=framelog", "HOS_PRESENT_TRACE=/abs/p.csv", "B=x"],
+                               input=body, capture_output=True, text=True, env=dict(os.environ, HOME=str(home)), timeout=90)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = root / "work" / "runs" / "t3"
+            env = (out / "env.txt").read_text().splitlines()
+            for want in ("RX_VK_FRAME_LOG=%s/frames.csv" % out, "RX_VK_FRAMELOG=%s/framelog" % out, "HOS_PRESENT_TRACE=/abs/p.csv", "B=x"):
+                self.assertIn(want, env)
+            self.assertTrue((out / "framelog.go").exists())
+            self.assertEqual((seed / "save" / "u" / "save.dat").read_bytes(), b"old")   # (the original untouched)
+            self.assertEqual((out / "user" / "save" / "u" / "save.dat").read_bytes(), b"new")
+            args = [l[4:] for l in (out / "hookshot_log.txt").read_text().splitlines() if l.startswith("arg ")]
+            self.assertEqual(args[args.index("--user") + 1], str(out / "user"))
+            rss = (out / "rss.txt").read_text().splitlines()
+            self.assertRegex(rss[-1], r"^# rss: [1-9]\d* samples every 5 s; peak VmRSS [1-9]\d* kB")
+            self.assertRegex(rss[1], r"^\d+ [1-9]\d* [1-9]\d* \d+ \d+$")
+            self.assertIn("# rss:", r.stdout)
+            r = subprocess.run([bash, "-s", "--", str(root), "t4", "30", "0", "0", "0", "", "0", str(Path(tmp, "nope"))],
+                               input=body, capture_output=True, text=True, env=dict(os.environ, HOME=str(home)), timeout=60)
+            self.assertNotEqual(r.returncode, 0)   # (a missing folder is refused)
+            r = subprocess.run([bash, "-s", "--", str(root), "t5", "30", "0", "0", "0", "", "0", str(root / "work/runs/t5/user")],
+                               input=body, capture_output=True, text=True, env=dict(os.environ, HOME=str(home)), timeout=60)
+            self.assertNotEqual(r.returncode, 0)   # (nor one inside the run's folder, which is emptied first)
+        bash_env = dict(os.environ, DECK_HOST="nobody@invalid.invalid")
+        for argv in (["x", "5", "--user-from"], ["x", "5", "--user-from", "rel/dir"], ["x", "5", "--user-from", "/a;b"]):
+            r = subprocess.run([bash, str(DECK / "run.sh")] + argv, capture_output=True, text=True, env=bash_env, timeout=30)
+            self.assertEqual(r.returncode, 2, (argv, r.stderr))   # (usage: before any SSH)
+
     def test_the_window_finds_the_wayland_desktop(self):   # (raiders, T13: a windowed run started over SSH)
         run = (DECK / "run.sh").read_text(encoding="utf-8")
         window = run[run.index('if [ "$window" = 1 ]; then\n    export DISPLAY'):]
@@ -144,8 +192,8 @@ class DeckScriptTests(unittest.TestCase):
     def test_the_net_check_option(self):
         run = (DECK / "run.sh").read_text(encoding="utf-8")
         self.assertIn("--net-check) netcheck=1 ;;", run)
-        self.assertIn('R=$1 name=$2 secs=$3 sound=$4 window=$5 netcheck=$6 extra=$7; shift 7', run)
-        self.assertIn('"$window" "$netcheck" "$extra" ${env[@]+"${env[@]}"}', run)   # (passed in the same order)
+        self.assertIn('R=$1 name=$2 secs=$3 sound=$4 window=$5 netcheck=$6 extra=$7 rss=$8 userfrom=$9; shift 9', run)
+        self.assertIn('"$window" "$netcheck" "$extra" "$rss" "$userfrom" ${env[@]+"${env[@]}"}', run)   # (passed in the same order)
         self.assertIn("ss -tuxanpH", run)
         self.assertIn('wait "$game"', run)
         # (a run without the option must still end with status 0: no bare `test && cmd` as the last line)

@@ -20,6 +20,7 @@
 //
 // RX_VK_OCC_REAL=1 / 0 chooses; the default is on for games other than Ocarina (vk_game.h), and RX_VK_OCC_FIXED set is off
 // (that switch keeps its meaning). RX_VK_OCC_LOG=<n>: the first n collected reports, with their counts.
+// RX_VK_OCC_LAG=<n> (T17): every n reports, how long after being queued the collector wrote them (median, 95%, longest).
 #pragma once
 
 #include <cstdint>

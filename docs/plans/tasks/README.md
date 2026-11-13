@@ -24,6 +24,7 @@ One file per implementation task, each sized for one Opus session. Order and dep
 | [T15](T15-input-and-gyro.md) | M5 | Deck | Handheld pad, scripted input, gyro |
 | [T16](T16-saves.md) | M5 | Deck | Per-game data folder; save and continue |
 | [T17](T17-gameplay-correctness.md) | M5 | Deck | Ink behaviour, picture stability, first measurements (Gate 2 reading) |
+| [T17a](T17a-ui-and-overlay-rendering.md) | M6 | Deck | UI flicker, overlays out of step, brightness after the gear menu (added after T17) |
 | [T18](T18-audio.md) | M6 | Deck | Audio |
 | [T19](T19-movies.md) | M6 | Deck | `nn::movie` to VP9 |
 | [T20](T20-deck-memory.md) | M7 | Deck | Memory budget and Deck profile |
