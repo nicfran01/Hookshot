@@ -26,6 +26,7 @@ One file per implementation task, each sized for one Opus session. Order and dep
 | [T17](T17-gameplay-correctness.md) | M5 | Deck | Ink behaviour, picture stability, first measurements (Gate 2 reading) |
 | [T17a](T17a-ui-and-overlay-rendering.md) | M6 | Deck | UI flicker, overlays out of step, brightness after the gear menu (added after T17) |
 | [T17b](T17b-missing-ground-and-world-flicker.md) | M6 | Deck | Draws left out after the gear menu: the missing ground and the world flicker (added after T17a) |
+| [T17c](T17c-world-flicker-with-copies.md) | M6 | Deck | World flicker while the camera moves, with T17a's copies as submitted (added after T17b) |
 | [T18](T18-audio.md) | M6 | Deck | Audio |
 | [T19](T19-movies.md) | M6 | Deck | `nn::movie` to VP9 |
 | [T20](T20-deck-memory.md) | M7 | Deck | Memory budget and Deck profile |

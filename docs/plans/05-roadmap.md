@@ -43,6 +43,7 @@ flowchart LR
     T16 --> T17
     T17 --> T17a[T17a UI and overlay rendering]
     T17a --> T17b[T17b missing ground]
+    T17b --> T17c[T17c world flicker with the copies]
     T17 --> T18[T18 audio]
     T17 --> T19[T19 movies]
     T17 --> T20[T20 memory]
@@ -51,6 +52,7 @@ flowchart LR
     T20 --> T23[T23 stability soak]
     T17a --> T23
     T17b --> T23
+    T17c --> T23
     T21 --> T23
     T22 --> T23
     T23 --> T24[T24 packaging]
@@ -118,11 +120,11 @@ returns. Owners by namespace: the "Ownership of traced calls" table in `tasks/T1
 
 ### M6 · Audio, movies and rendering
 - **Tasks:** T18, T19, T17a (added after T17: no other task covered rendering correctness), T17b (added after T17a's
-  user check: draws left out after the gear menu).
+  user check: draws left out after the gear menu), T17c (added after T17b: world flicker with T17a's copies).
 - **Exit:** music and effects play without crackle for ten minutes in the first area; one of the
   `UI/Movie/Gadget_*.webm` clips plays in its menu at normal speed; the HUD shows no flicker in normal play and the
-  scene keeps its brightness after the gear menu (T17a's criteria); the ground stays visible after the gear menu, with no
-  world flicker (T17b's criteria).
+  scene keeps its brightness after the gear menu (T17a's criteria); the ground stays visible after the gear menu (T17b's
+  criteria); no world, model or character flicker with the stick or the gyro, in the hub or a level (T17c's criteria).
 
 ### M7 · Deck stability and performance  — **Gate 2 (verdict)**
 - **Tasks:** T20, T21, T22, T23.
@@ -183,3 +185,7 @@ returns. Owners by namespace: the "Ownership of traced calls" table in `tasks/T1
   the ground missing after the gear menu, with world flicker from then on: 36-107 indexed draws a frame left out because
   their index buffer is in no imported pool (`reports/T17a-ui-rendering.md`, step 6). T17b owns it, before T23. M6 lists
   it, and its exit gains T17b's criteria.
+- 2026-11-13 (after T17b): new task **T17c**. T17b fixed the missing ground (the renderer read only the host's first 8192
+  memory pools). A world flicker remains while the camera moves, worst in a level. T17b's A/B ties it in part to T17a's
+  copies as submitted (`reports/T17b-missing-ground.md`, What is left, item 1). T17c owns it, before T23. M6 lists it, and
+  its exit's world-flicker clause moves from T17b's criteria to T17c's.
