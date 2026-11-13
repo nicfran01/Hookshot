@@ -317,6 +317,10 @@ Peak resident set 6.69 GB (`run.sh`: the run ended by itself, so `peak_rss_kb.tx
   working sensor reads about 1 G of gravity). `gyro_a` had 344 lines that followed the tilt.
 - **The Steam client was running** in this Desktop Mode session from 15:49 (`steam -steamdeck`). When you quit it, the
   gyro moved the aim again (your check).
+  - The fetched `check2` log then has **511** `hid: motion:` lines with real readings, e.g. `accel (+0.01, +0.10,
+    -0.99) G`: gravity, where it had been all zeros (verified).
+  - `check2` exited 0 when you closed it, with 0 device losses and a peak resident set of 5.87 GB. Your own save is
+    still `d9dfb4bb…`.
 - **So T15's Gaming Mode finding applies to Desktop Mode whenever Steam runs** (inferred): Steam holding the Deck's
   controller leaves the game's SDL view of it without sensor data.
 - **For now:** quit Steam before a Desktop Mode run that needs the gyro.
