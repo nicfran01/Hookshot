@@ -96,6 +96,11 @@ BufferRef gpu_buffer_bind(uint64_t gpu, uint64_t size, bool written) {
 #include "rb_bindtail.inc"
     return {p->mirror, off, size, 0};
 }
+/// ((raiders, T17a) vk_draw.cpp's copy of a read-only storage buffer as submitted, made only where the pools have no
+/// mirrors: this world is about mirrors, so it binds every one in place, as before)
+BufferRef storage_as_submitted(uint64_t, uint64_t) {
+    return {};
+}
 uint64_t gpu_pool_end(uint64_t gpu) {
     std::lock_guard lk(pools_mu);
     auto it = imported.upper_bound(gpu);

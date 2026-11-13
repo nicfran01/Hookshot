@@ -30,6 +30,7 @@
 #include "vk_gprof.h"      // (RX_VK_PASS_TIMING)
 #include "import_hold.h"
 #include "mirror_inherit.h"
+#include "as_submitted_policy.h"   // (raiders, T17a)
 #ifdef __linux__
 #include <cerrno>
 #include <dlfcn.h>
@@ -699,9 +700,21 @@ bool gpu_pages_on() {
     static const bool v = getenv("RX_VK_GPU_PAGES") != nullptr;
     return v;
 }
+// ((raiders, T17a) the pages of guest memory the GPU has ever written (storage buffers, copies, clears): a range on one is
+// never copied as submitted (as_submitted_policy.h), since the copy would hold the CPU's bytes from before the GPU's
+// write. One bit a page over the 512 GB window, 16 MB of zero pages until touched, never cleared: such a range keeps its
+// binding in place. (Pages, not 64 KB granules: the game's dynamic pools hold CPU-written and GPU-written data side by side)
+constexpr uint64_t kGranuleShift = kPageShift;
+constexpr uint64_t kGranules = (kPages << kPageShift) >> kGranuleShift;
+std::atomic<uint64_t> gpu_granules[kGranules / 64];
 void memory_stamp_gpu(uint64_t guest, uint64_t size) {
     if (!size) return;
     memory_stamp(guest, size);
+    if (guest < (kPages << kPageShift)) {   // ((raiders, T17a) the granules: memory_gpu_written)
+        const uint64_t g1 = std::min((guest + size - 1) >> kGranuleShift, kGranules - 1);
+        for (uint64_t g = guest >> kGranuleShift; g <= g1; g++)
+            gpu_granules[g / 64].fetch_or(1ull << (g % 64), std::memory_order_relaxed);
+    }
     if (!gpu_pages_on()) return;
     std::lock_guard lk(gpu_pages_mu);
     const uint64_t p0 = guest >> kPageShift, p1 = (guest + size - 1) >> kPageShift;
@@ -2124,6 +2137,24 @@ bool import_in_background(uint64_t guest, uint64_t size) {
     return true;
 }
 } // namespace
+bool memory_mirrors_on() {   // ((raiders, T17a) for vk_draw.cpp's copies as submitted: as_submitted_policy.h)
+    return mirror_on();
+}
+bool memory_gpu_written(uint64_t gpu, uint64_t size) {   // ((raiders, T17a) memory_stamp_gpu's pages)
+    if (!size) return false;
+    const uint64_t guest = gpu < (1ull << 40) ? gpu : host->gpu_guest(gpu);
+    if (!guest || size > (kPages << kPageShift) || guest > (kPages << kPageShift) - size) return true;   // (unknown: as written)
+    for (uint64_t g = guest >> kGranuleShift; g <= (guest + size - 1) >> kGranuleShift; g++)
+        if (gpu_granules[g / 64].load(std::memory_order_relaxed) & (1ull << (g % 64))) return true;
+    return false;
+}
+uint32_t memory_generation_before(uint64_t frame, uint32_t frames) {   // ((raiders, T17a) as_submitted::GenRing)
+    static std::mutex m;
+    static as_submitted::GenRing ring;
+    std::lock_guard lk(m);
+    ring.note(frame, gen_now);
+    return ring.before(frame, frames);
+}
 uint64_t device_vram_bytes() {
     uint64_t vram = 0;
     for (uint32_t h = 0; h < dev.memory.memoryHeapCount; h++)
