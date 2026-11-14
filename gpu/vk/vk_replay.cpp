@@ -49,6 +49,7 @@
 #include "vk_present_trace.h"
 
 #include "vk_internal.h"
+#include "as_submitted_policy.h"   // (raiders, T17c)
 #include "vk_occlusion.h"   // (raiders) samples-passed reports from occlusion queries
 #include "vk_work.h"   // (after the others: counts the commands that do GPU work, for full_barrier)
 
@@ -438,6 +439,7 @@ void ev_cpu_apply() {
     ev_cpu_any.store(false, std::memory_order_release);
 }
 int64_t st_waits_met, st_waits_unmet;
+int64_t st_met_cpu, st_met_captures;   // ((raiders, T17c) waits met on an event the CPU signals, and the captures taken there)
 bool event_wait_met(uint32_t have, uint32_t mode, uint32_t want) {
     return mode == 0 ? have == want : (int32_t)(have - want) >= 0;   // (NVN: EQUAL, GEQUAL_WRAP)
 }
@@ -765,6 +767,22 @@ void replay(VkCommandBuffer& cmd, NvnState& s, const uint8_t* p, const uint8_t* 
             const uint32_t have = event_value_in(ev_values, w.gpu);
             if (event_wait_met(have, w.mode, w.value)) {
                 st_waits_met++;
+                // ((raiders, T17c) a wait for an event the CPU signals, met already when the replay gets here: the game wrote what
+                // the work after it reads after it submitted it, up to the signal, as at a stopped queue's resume (resume_queue,
+                // below), whose capture now is the only one with those writes. Without mirrors the draws after the wait copy
+                // their uniform and storage buffers as submitted (as_submitted_policy.h) from the submit's capture: the frame
+                // before's camera (Raiders' 3D view, or its sky alone, two frames back for a frame while the camera turns, at
+                // ~1 frame in 50-100). A capture now, as there: the copies after the wait take its pages; ub_gen moves on, so
+                // that no draw after it keeps the descriptors of one before it, with the old copies. Not in a parallel replay's
+                // dry pass: its segments are recorded after it, those before the wait too)
+                bool cpu_event = false;
+                {
+                    std::lock_guard ek(ev_cpu_mu);
+                    cpu_event = cpu_events.count(w.gpu) != 0;
+                }
+                static const bool met_capture = as_submitted::capture_at_met_wait(getenv("RX_VK_MET_CAPTURE"), memory_mirrors_on());
+                if (cpu_event) st_met_cpu++;
+                if (cpu_event && met_capture && !dry && memory_capture_now(rec_value_now, completed())) st_met_captures++, ub_gen++;
             } else if (suspend_ok) {   // (on once that work is replayed; a dry pass: its part up to here)
                 suspend_at = p;
                 return;
@@ -1832,9 +1850,11 @@ void update_blocked() {
 void log_order_stats() {
     logf("vk: queues ordered by their events: %lld submissions stopped at a wait, %lld went on once it was reached, %lld "
          "waits gone past; made to go by presents %lld, releases %lld, waits for the replay %lld, %d ms %lld (stopped "
-         "%.2f ms at most); waits met %lld, not met %lld; captures at a CPU event's wait %lld", (long long)st_stops, (long long)st_resumed,
+         "%.2f ms at most); waits met %lld (%lld on a CPU event, %lld captures there), not met %lld; captures at a CPU event's wait %lld",
+         (long long)st_stops, (long long)st_resumed,
          (long long)st_forced_waits, (long long)st_forced[0], (long long)st_forced[1], (long long)st_forced[2], hold_ms(),
-         (long long)st_forced[3], st_stopped_max_ms, (long long)st_waits_met, (long long)st_waits_unmet,
+         (long long)st_forced[3], st_stopped_max_ms, (long long)st_waits_met, (long long)st_met_cpu, (long long)st_met_captures,
+         (long long)st_waits_unmet,
          (long long)st_resume_captures);
 }
 

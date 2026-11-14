@@ -65,4 +65,13 @@ struct GenRing {
     }
 };
 
+/// (raiders, T17c) A wait for an event the CPU signals, met already when the replay records it: a capture there, as at a
+/// stopped queue's resume (vk_replay.cpp resume_queue). The game writes what the work after the wait reads after it
+/// submitted that work, up to the signal; the submit's capture had the frame before's, and the copies above took it: a
+/// frame's camera two frames back (Raiders' double-buffered constants), the 3D view or its sky out of step for a frame
+/// while the camera turns. With mirrors nothing here is copied at the recording: none. RX_VK_MET_CAPTURE, as switch_on.
+inline bool capture_at_met_wait(const char* env, bool mirrors_on) {
+    return switch_on(env, mirrors_on);
+}
+
 } // namespace mkwvk::as_submitted
