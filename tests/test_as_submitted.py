@@ -1,5 +1,7 @@
 """(raiders, T17a) Uniform buffers and lately written read-only storage buffers are copied as submitted when the pools
 have no VRAM mirrors, except memory the GPU writes.
+(raiders, T17c) And a wait for an event the CPU signals, met already at the replay, takes a capture there, as a stopped
+queue's resume does, so that the copies after it hold what the game wrote up to its signal.
 
 Compiles gpu/vk/as_submitted_policy.h against its cases (the switches, the two decisions, the frame-generation ring), and
 checks by text that vk_draw.cpp's uniform and storage bindings take their decisions from it before they bind the pool,
@@ -59,6 +61,11 @@ int main() {
     for (uint64_t f = 20; f < 40; f++) r.note(f, (uint32_t)(f * 10));
     CHECK(r.before(39, 3) == 360); // (old slots overwritten as the ring turns)
     CHECK(r.before(39, as::kRing + 2) == 0 || r.before(39, as::kRing + 2) <= 290);
+    // (raiders, T17c) a capture at a met wait for a CPU event: without mirrors, unless switched off
+    CHECK(as::capture_at_met_wait(nullptr, false));
+    CHECK(!as::capture_at_met_wait(nullptr, true));   // (mirrors: nothing copied at the recording)
+    CHECK(!as::capture_at_met_wait("0", false));
+    CHECK(as::capture_at_met_wait("1", true));
     if (!bad) std::printf("policy: all cases\n");
     return bad != 0;
 }
@@ -80,7 +87,27 @@ def need(cond, message):
         raise SystemExit("FAIL: " + message)
 
 
+def check_met_wait(replay):
+    """(raiders, T17c) the met branch of NOP_WAIT_EVENT: a CPU event's wait takes a capture, as resume_queue does"""
+    need('#include "as_submitted_policy.h"' in replay, "vk_replay.cpp includes as_submitted_policy.h")
+    case = replay[replay.index("case NOP_WAIT_EVENT: {"):]
+    case = case[:case.index("case NOP_REPORT_COUNTER:")]
+    met = case[case.index("if (event_wait_met(have, w.mode, w.value)) {"):case.index("} else if (suspend_ok) {")]
+    need('as_submitted::capture_at_met_wait(getenv("RX_VK_MET_CAPTURE"), memory_mirrors_on())' in met,
+         "the met wait's capture is the policy's decision, after the mirrors")
+    need("cpu_event = cpu_events.count(w.gpu) != 0;" in met and "std::lock_guard ek(ev_cpu_mu);" in met,
+         "only a wait for an event the CPU signalled (cpu_events, under ev_cpu_mu)")
+    need("cpu_event && met_capture && !dry && memory_capture_now(rec_value_now, completed())" in met,
+         "a capture now for the submission being recorded, not in a dry pass")
+    need("st_met_captures++, ub_gen++" in met, "the draws after the capture build their descriptors again (ub_gen)")
+    need(case.index("if (worker) break;") < case.index("if (event_wait_met("), "a worker never takes it")
+    # (the same capture as the stopped queue's resume)
+    resume = block(replay, "void resume_queue(uint64_t queue, bool forced) {")
+    need("memory_capture_now(q.value, completed());" in resume, "resume_queue still takes its capture at a CPU event")
+
+
 def check_sources():
+    check_met_wait((ROOT / "gpu/vk/vk_replay.cpp").read_text(encoding="utf-8"))
     draw = (ROOT / "gpu/vk/vk_draw.cpp").read_text(encoding="utf-8")
     memory = (ROOT / "gpu/vk/vk_memory.cpp").read_text(encoding="utf-8")
     internal = (ROOT / "gpu/vk/vk_internal.h").read_text(encoding="utf-8")
@@ -150,7 +177,8 @@ def main():
         subprocess.run([a.cxx, "-std=c++20", "-Wall", "-Wextra", "-Werror", "-I", str(ROOT / "gpu/vk"), str(src), "-o", str(exe)],
                        check=True)
         subprocess.run([str(exe)], check=True)
-    print("PASS: uniform buffers and lately written read-only storage buffers are copied as submitted where the pools are not mirrored")
+    print("PASS: uniform buffers and lately written read-only storage buffers are copied as submitted where the pools are not mirrored;"
+          " a met wait for a CPU event takes a capture first")
 
 
 if __name__ == "__main__":
