@@ -32,10 +32,13 @@
   The UI stays fixed: HUD bottom left 16.9 and 11.4 (copies off: 348.2).
 - **Cost:** 0.8-0.94 extra captures a frame (3,781-5,570 per run), ~0.48 ms each on the replay thread, ~44 pages
   (0.2 MB). The frame rate at the same game-work level is unchanged within run noise.
-- **Not done:**
-  - the level case (Blanch Seaway, `flick1`) and the 10-minute user check: they need you at the Deck (step 5, and
-    "What you need to do");
-  - no scripted route into the level (Deviations).
+- **The level case (`flick1`, your session, 265 s):**
+  - Blanch Seaway reads **76.0** world events of 3+ blocks per 1,000 (9-35 blocks: **5.4**).
+  - T17b's runs, before the fix: copies on (`ground1`) 229.6 and 178.7 (53.1 and 42.6); copies off (`abl0`) 169.1 (52.7).
+  - 0 skip lines, 0 device losses.
+  - **Your verdict:** "This is a very significant improvement. in this current state, i completely accept the way the game
+    looks right now."
+- **Not done:** no scripted route into the level (Deviations).
 
 Claims are **verified** (run, command, log line or file:line named) unless marked **inferred** or **unknown**. Runs are in
 `work/runs/<name>/` (Mac) and `~/raiders/work/runs/<name>/` (Deck): game output, never committed. Every run used a fresh
@@ -204,37 +207,32 @@ Other tests that cut `vk_replay.cpp` by text pass unchanged (`test_bank_gen.py`,
 
 | Command or criterion | Output | Met? |
 |---|---|---|
-| `scripts/deck/run.sh flick1 600 --window --sound --args "--user /home/deck/raiders/work/t17_user_play" -- HOS_HANDHELD=1 HOS_WINDOW_SIZE=1280x720 RX_VK_SKIP_PROG=cffdbb02c4dfbd39 RX_VK_FRAMELOG=framelog && scripts/deck/fetch.sh flick1` | not run | **Not met yet:** it is your session at the Deck ("What you need to do") |
-| `framelog.py work/runs/flick1/framelog --regions 60 --span <level> --span <hub>`; its skip and device-lost greps | not run | **Unknown** until `flick1` |
-| World in the level case: ≤ copies-off, ≤ 1.25x mirrors, ≤ 1.5x the still floor | Level: not run. **Hub sweep stand-in** (final build), 3+ blocks: fix 86.2 / 55.6, copies off 82.1, mirrors 97.0 (1.25x = 121.3), still floor 0.0 | **Level unknown.** Hub: ≤ 1.25x mirrors **met**. ≤ copies off: met by `fx2` (55.6), not by `fx1` (86.2 against 82.1, 1.05x; the two runs differ by game-work level, 1441 against 2134). **≤ 1.5x the still floor: not met as written, and cannot be:** the floor is 0.0, and camera motion alone gives 55-100 of 3+ blocks in every mode, mirrors included (scope 2). With the flicker's own class (9-35 blocks), the fix reads 0.0 = floor |
+| `scripts/deck/run.sh flick1 600 --window --sound --args "--user /home/deck/raiders/work/t17_user_play" -- HOS_HANDHELD=1 HOS_WINDOW_SIZE=1280x720 RX_VK_SKIP_PROG=cffdbb02c4dfbd39 RX_VK_FRAMELOG=framelog && scripts/deck/fetch.sh flick1` | `run flick1: exited with 0` (you closed the game at 265 s); `29 screenshots`; `peak resident set 6829180 kB`; `fetch: …/work/runs/flick1 (34 files)` | Met (265 s, not 600: your session) |
+| `.venv/bin/python -I scripts/framelog.py work/runs/flick1/framelog --regions 60 --span 108-200 --span 45-78 --span 232-265` | `8892 frames`; `regions from 60.0 s: 6389 eligible triplets`; HUD bottom left `144, 22.5 per 1,000`; counter `257, 40.2`; bottom centre `80, 12.5`; middle `205, 32.1`; `events of 36+ blocks from 60.0 s: 0`; `world span 108-200 s: … 210 with 3+ blocks, 76.0 per 1,000`; `45-78 s: … 56 …, 41.2`; `232-265 s: … 27 …, 38.7` | Ran. Spans from the screenshots (by eye): hub 41-78 s, map ~84 s, loading ~96 s, Blanch Seaway ~108-200 s, its menu ~210 s, hub again ~230-265 s |
+| `grep -c "skips a frame by vk_draw.cpp line"` / `grep -ci "device lost"` on `flick1` | `0` / `0` | Met |
+| World in the level case: ≤ copies-off, ≤ 1.25x mirrors, ≤ 1.5x the still floor | **Level (`flick1`, 108-200 s): 76.0** of 3+ blocks (9-35: 5.4, from two `--regions` counts). Copies off, T17b's `abl0` level 120-160 s: 169.1 (52.7). No mirrors run in the level. **Hub sweep stand-in** (final build): fix 86.2 / 55.6, copies off 82.1, mirrors 97.0 (1.25x = 121.3), still floor 0.0 | **≤ copies off: met in the level** (76.0 against 169.1; different plays, so the direction only). **≤ 1.25x mirrors:** level **unknown** (no mirrors run there); hub met. Hub ≤ copies off: met by `fx2` (55.6), not by `fx1` (86.2 against 82.1, 1.05x; the two runs differ by game-work level, 1441 against 2134). **≤ 1.5x the still floor: not met as written, and cannot be:** the floor is 0.0, and camera motion alone gives 55-100 of 3+ blocks in every mode, mirrors included (scope 2). With the flicker's own class (9-35 blocks), the fix reads 0.0 in the hub sweeps and 5.4 in the level, against 42.6-53.1 before (`ground1`) and 52.7 copies off (`abl0`) |
 | `scripts/deck/run.sh ui3 330 --window --user-from /home/deck/raiders/work/t17_user_seed -- HOS_INPUT_SCRIPT="$(cat games/raiders/scripts/area1_loop.txt)" HOS_HANDHELD=1 HOS_WINDOW_SIZE=1280x720 RX_VK_FRAMELOG=framelog && scripts/deck/fetch.sh ui3` | `run ui3: stopped at the time limit`; `fetch: …/work/runs/ui3 (28 files)` | Met |
 | `.venv/bin/python -I scripts/framelog.py work/runs/ui3/framelog --regions 60` | `6953 frames`; `regions from 60.0 s: 5109 eligible triplets`; HUD bottom left `44, 8.6 per 1,000`; counter `30, 5.9`; bottom centre `108, 21.1`; middle `41, 8.0`; `events of 36+ blocks from 60.0 s: 0`; world 1-2 58.5, 3-8 14.1, 9-35 3.1, 36-144 0.0 per 1,000 | **UI met:** 8.6 ≤ 2 × 21.1. **No 36+ event at the water warning or the wipe: met** (0 of any class; T17b's `ui2` had 1) |
 | `grep -c "skips a frame by vk_draw.cpp line"` / `grep -ci "device lost"`, every run named | `0` / `0` in all 30 runs (`sw_*`, `fx*`, `ui3`) | Met |
 | `.venv/bin/python -I -B tests/run_all.py` (`HOOKSHOT_VULKAN_HEADERS`/`HOOKSHOT_SPIRV_HEADERS=/opt/homebrew/include`, `--jobs 4`) | `332 passed, 9 failed, 9 skipped in 823 s (linux, 4 at once)` | **Met:** the same 9 as T17b (8 FAIL plus the `test_program_cache_reader.py` TIMEOUT, all in `mac-test-baseline.md`); `test_as_submitted.py` passes with its new cases |
-| UI stays fixed in `flick1` and `ui3` | `ui3` above; the hub sweeps 11.4-16.9 against copies-off 348.2 | `ui3` met; `flick1` unknown |
-| User check (10 minutes, windowed, sound, hub, Blanch Seaway, back, gear menu, stick and gyro, Steam quit) | not done | **Not met yet** |
+| UI stays fixed in `flick1` and `ui3` | `flick1`: HUD bottom left 22.5 ≤ 2 × 32.1; `ui3` above; the hub sweeps 11.4-16.9 against copies-off 348.2 | Met |
+| User check (10 minutes, windowed, sound, hub, Blanch Seaway, back, gear menu, stick and gyro, Steam quit) | `flick1`, 265 s, windowed, with sound: hub, Blanch Seaway, back to the hub. Your words: "This is a very significant improvement. in this current state, i completely accept the way the game looks right now." | **Met by your acceptance.** Not checked one by one: the session was 265 s, not 10 minutes, and whether the gear menu and the gyro were used is **unknown**. The ground is visible in the hub after the level (screenshot at present 8400, by eye) |
 
-## What you need to do
+## Your session (`flick1`, 2026-11-14)
 
-The build on the Deck (`~/raiders/work/sa/build/hookshot`) is this branch's final code. Quit Steam (for the gyro), then
-from the Mac:
+The final build, the acceptance command, your play: hub, map, Blanch Seaway, back to the hub, closed at 265 s.
 
-```bash
-DECK_HOST=deck@steamdeck.local scripts/deck/run.sh flick1 600 --window --sound --args "--user /home/deck/raiders/work/t17_user_play" -- \
-  HOS_HANDHELD=1 HOS_WINDOW_SIZE=1280x720 RX_VK_SKIP_PROG=cffdbb02c4dfbd39 RX_VK_FRAMELOG=framelog && DECK_HOST=deck@steamdeck.local scripts/deck/fetch.sh flick1
-```
+| Span | `flick1` (fix) | `ground1` (T17b, copies on) | `abl0` (T17b, copies off) |
+|---|---|---|---|
+| Level, 3+ blocks per 1,000 | **76.0** (108-200 s) | 229.6 (117-144 s), 178.7 (226-239 s) | 169.1 (120-160 s) |
+| Level, 9-35 blocks per 1,000 | **5.4** | 53.1, 42.6 | 52.7 |
+| Hub, 3+ blocks per 1,000 | 41.2 (45-78 s), 38.7 (232-265 s) | 43.7 (37-92 s) | 30.1 (37-100 s) |
+| Hub, 9-35 blocks per 1,000 | **0.0**, 4.3 | 9.6 | 1.5 |
 
-Play it the same way each time, so the spans compare:
-1. In the hub, stand still for 20 s with no input (the floor).
-2. Turn the camera with the right stick, left and right, for 20 s, standing still.
-3. Do the same with the gyro.
-4. Talk to the robot by the hub's spawn (A), choose Blanch Seaway on the map, then Raid.
-5. In the level, repeat steps 1-3, then play.
-6. Back in the hub: open and close the gear menu twice (PLUS, B), and check the ground.
-7. Close the game at ~10 min.
-
-Your view to note: world, model or character flicker with the stick and the gyro, in the hub and the level; UI, ink, save
-and continue as in T17b; the ground after the gear menu.
+- The sessions are different plays at different game-work levels, so they agree in direction only.
+- In the level, copies off (`abl0`) also read 52.7 of 9-35 blocks. Part of the level's large events are the game's own
+  effects, or copies-off faults of their own (inferred; not calibrated, Deviations).
+- `waits met 43693 (8219 on a CPU event, 8219 captures there)`.
 
 ## Deviations
 
@@ -261,7 +259,7 @@ and continue as in T17b; the ground after the gear menu.
 
 ## What is left
 
-1. **The level case and your check** (`flick1`, the 10-minute session): the acceptance criteria above.
+1. **A mirrors run in the level**, if the 1.25x-of-mirrors criterion is wanted there (only the hub has one).
 2. **Mirrors without the fix.** Why `RX_VK_MIRROR=1` showed no stale frames is **unknown**. The policy leaves the capture
    off with mirrors. A discrete-GPU check belongs with the upstream PR.
 3. **The parallel replay** (`RX_VK_PARALLEL`, off by default) takes no capture at a met wait. Its dry pass runs before
