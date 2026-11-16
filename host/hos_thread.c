@@ -957,16 +957,40 @@ HLE(_ZN2nn2os11SleepThreadENS_8TimeSpanE) {
 /* ---- TLS slots --------------------------------------------------------------------------------------------- */
 static volatile LONG slot_used[HOS_TLS_SLOTS];
 
-/* nn::os::AllocateTlsSlot(TlsSlot*, void (*)(unsigned long)) -> Result */
-HLE(_ZN2nn2os15AllocateTlsSlotEPNS0_7TlsSlotEPFvmE) {
-    for (int i = 0; i < HOS_TLS_SLOTS; i++) {
+/* (raiders, T19) a free slot taken, from the bottom (the game's) or the top (the SDK's), with its value cleared in every
+   thread, as the console's allocator does (os::detail::TlsManager::AllocateTlsSlot calls
+   ThreadManager::SetZeroToAllThreadsTlsSafe, Raiders' sdk+0x16cc30): a slot freed and taken again (nn::movie's, at each
+   movie) no longer shows a thread the value it had before. -1: none free */
+static int take_tls_slot(int from_top) {
+    for (int k = 0; k < HOS_TLS_SLOTS; k++) {
+        const int i = from_top ? HOS_TLS_SLOTS - 1 - k : k;
         if (!InterlockedCompareExchange(&slot_used[i], 1, 0)) {
-            G32(ARG(0)) = (uint32_t)i;
-            RET(0);
-            return;
+            AcquireSRWLockShared(&threads_lock);
+            for (int t = 0; t < nthreads; t++) threads[t]->tls_slots[i] = 0;
+            ReleaseSRWLockShared(&threads_lock);
+            return i;
         }
     }
-    RET(0x2C01);   /* os::ResultOutOfResource */
+    return -1;
+}
+
+/* nn::os::AllocateTlsSlot(TlsSlot*, void (*)(unsigned long)) -> Result */
+HLE(_ZN2nn2os15AllocateTlsSlotEPNS0_7TlsSlotEPFvmE) {
+    const int i = take_tls_slot(0);
+    if (i < 0) { RET(0x2C01); return; }   /* os::ResultOutOfResource */
+    G32(ARG(0)) = (uint32_t)i;
+    RET(0);
+}
+
+/* (raiders, T19) nn::os::SdkAllocateTlsSlot(TlsSlot*, void (*)(unsigned long)) -> Result: the SDK's own slots (nn::movie's
+   Initialize takes one, its Finalize frees it). Run as the sdk's code it took a slot from the sdk's table, and FreeTlsSlot
+   (below: this table) never gave it back there: after 11 movies the next Initialize found none and aborted. Now from
+   this table */
+HLE(_ZN2nn2os18SdkAllocateTlsSlotEPNS0_7TlsSlotEPFvmE) {
+    const int i = take_tls_slot(1);
+    if (i < 0) { RET(0x2C01); return; }
+    G32(ARG(0)) = (uint32_t)i;
+    RET(0);
 }
 
 HLE(_ZN2nn2os11FreeTlsSlotENS0_7TlsSlotE) { if ((uint32_t)ARG(0) < HOS_TLS_SLOTS) slot_used[(uint32_t)ARG(0)] = 0; }

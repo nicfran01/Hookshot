@@ -27,3 +27,7 @@ PERF_FILES = ("hot_funcs.txt", "hot_order.txt", "raiders_pieces.prof")   # (T22:
 # device) differs from host/nvn_native.c devinfo[] (Mario Kart World's 21.4.0 driver). Ids it reads from device state, and the
 # API minor version (deliberately 40 upstream), are not overrides: docs/plans/reports/T11-nvn2.md
 NVN_DEVICE_INFO = {0x31: 0}          # GLSLC_MIN_SUPPORTED_GPU_CODE_MINOR_VERSION: 0 (the shared table: 5)
+# (T19) OS-facing imports the sdk defines that run as its own lifted code, not as generated stubs (nx2/standalone.py
+# sdk_lifted). nn::movie's Initialize / IsInitialized / Finalize are a reference count and a TLS slot under a mutex, with no
+# service call (sdk+0x4b89a0..0x4b8b64); the movie library's MediaExtractor (lifted) runs after them.
+SDK_LIFTED = ("_ZN2nn5movie10InitializeEv", "_ZN2nn5movie13IsInitializedEv", "_ZN2nn5movie8FinalizeEv")
