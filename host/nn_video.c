@@ -35,6 +35,19 @@ static int video_log(void) {   /* HOS_VIDEO_LOG=1: submissions and acquisitions 
     if (on < 0) on = getenv("HOS_VIDEO_LOG") != NULL;
     return on;
 }
+/* (raiders, T19) HOS_VIDEO_LOG: every decoder's and image pool's initialisation and finalisation, with the running counts,
+   to see that a menu opened and closed many times gives each one back */
+static volatile LONG lifecycle[4];   /* decoders initialised, finalised; pools initialised, finalised */
+enum { DEC_INITS, DEC_FINIS, POOL_INITS, POOL_FINIS };
+static void lifecycle_log(int what, uint64_t obj) {
+    const LONG n = InterlockedIncrement(&lifecycle[what]);
+    if (!video_log()) return;
+    static const char *const names[4] = {"decoder initialised", "decoder finalised", "image pool initialised",
+                                         "image pool finalised"};
+    hos_log("video: %s %#llx (#%ld; decoders %ld/%ld, pools %ld/%ld initialised/finalised)", names[what],
+            (unsigned long long)obj, (long)n, (long)lifecycle[DEC_INITS], (long)lifecycle[DEC_FINIS],
+            (long)lifecycle[POOL_INITS], (long)lifecycle[POOL_FINIS]);
+}
 
 void hos_system_event_init(uint64_t key, int autoclear);   /* nn_os_sync.c */
 void hos_system_event_signal(uint64_t key);
@@ -94,6 +107,8 @@ typedef struct {
     int64_t clock_ns, clock_pts;
     int64_t last_pts;                /* the pts of the last picture handed out */
     int64_t log_submits;             /* (HOS_VIDEO_LOG) submissions still to log, after a flush or the end */
+    int64_t decode_ns, decodes;      /* (raiders, T19: HOS_VIDEO_LOG) time in libavcodec, submissions decoded, */
+    int64_t acquire_ns, acquire_gap_ns, acquire_gaps;   /* and the time between pictures handed out, since the last line */
     SRWLOCK lock;
 } Dec;
 
@@ -186,6 +201,7 @@ HLE(_ZN2nn5codec26InitializeDecoderImagePoolEPNS0_25VideoDecoderImagePoolTypeEPv
         hos_log("video: image pool %#llx: %dx%d format %d, %d images, memory %#llx+%#llx", (unsigned long long)ARG(0),
                 o->w, o->h, o->format, o->count, (unsigned long long)o->mem, (unsigned long long)o->mem_size);
     set_host(ARG(0), POOL_MAGIC, o);
+    lifecycle_log(POOL_INITS, ARG(0));   /* (raiders, T19) */
     RET(0);
 }
 HLE(_ZN2nn5codec24FinalizeDecoderImagePoolEPNS0_25VideoDecoderImagePoolTypeE) {
@@ -193,6 +209,7 @@ HLE(_ZN2nn5codec24FinalizeDecoderImagePoolEPNS0_25VideoDecoderImagePoolTypeE) {
     if (o && o->sws) sws_freeContext(o->sws);
     if (o) free(o->rgba), free(o->nv12), free(o);
     set_host(ARG(0), POOL_MAGIC, NULL);
+    if (o) lifecycle_log(POOL_FINIS, ARG(0));   /* (raiders, T19) */
 }
 /* (hookshot) the pool's picture as RGBA, from its NV12, if it was not made yet. Each 1080p frame of OoT's movies was
    converted on the movie thread, in plain C, though OoT reads only the NV12: nearly half that thread's time, which put the
@@ -305,6 +322,7 @@ static void dec_init_sized(Ctx *c, enum AVCodecID id, const char *what, int w, i
     d->pkt = av_packet_alloc();
     d->frame = av_frame_alloc();
     set_host(ARG(0), DEC_MAGIC, d);
+    lifecycle_log(DEC_INITS, ARG(0));   /* (raiders, T19) */
     static int logged;
     if (logged++ < 4)
         hos_log("video: %s decoder %s (%dx%d)", what, d->ctx ? "ready" : d->mf ? "ready on Media Foundation" :
@@ -336,6 +354,7 @@ static void dec_finalize(Ctx *c) {
     av_frame_free(&d->frame);
     free(d);
     set_host(ARG(0), DEC_MAGIC, NULL);
+    lifecycle_log(DEC_FINIS, ARG(0));   /* (raiders, T19) */
 }
 /* a decoded frame into the queue, as RGBA and NV12 (the oldest dropped when the reader falls behind) */
 static void queue_frame(Dec *d, const AVFrame *f) {
@@ -421,11 +440,13 @@ static void decode_next(Dec *d) {
             }
         } else if (n->pkt) {
             d->eos = 0;
+            const int64_t t0 = video_log() ? hos_now_ns() : 0;   /* (raiders, T19) */
             if (avcodec_send_packet(d->ctx, n->pkt) == AVERROR(EAGAIN)) {   /* (full: its pictures out first) */
                 drain(d);
                 avcodec_send_packet(d->ctx, n->pkt);
             }
             drain(d);
+            if (t0) d->decode_ns += hos_now_ns() - t0, d->decodes++;
             av_packet_free(&n->pkt);
         } else {   /* (the end: the rest out, the last picture marked) */
             avcodec_send_packet(d->ctx, NULL);
@@ -669,11 +690,18 @@ static void dec_acquire(Ctx *c) {
     d->slot_last[slot] = p->last;
     d->busy[slot] = 1;
     {   /* (hookshot) HOS_VIDEO_LOG: the picture's time against this decoder's movie clock, to see it fall behind the sound */
+        const int64_t now = video_log() ? hos_now_ns() : 0;
+        if (now && d->acquire_ns) d->acquire_gap_ns += now - d->acquire_ns, d->acquire_gaps++;   /* (raiders, T19) */
+        if (now) d->acquire_ns = now;
         if (video_log() && d->acquires % 60 == 0) {
-            const int64_t now = hos_now_ns();
             hos_log("video: acquire %lld: picture at %.2f s, wall clock %.2f s (behind by %.2f s), %d decoded ahead", (long long)d->acquires,
                     (double)(p->pts - d->clock_pts) / 1e9, (double)(now - d->clock_ns) / 1e9,
                     (double)(now - d->clock_ns - (p->pts - d->clock_pts)) / 1e9, d->qn);
+            /* (raiders, T19) what limits the pictures shown: libavcodec's time, or how often the game takes one */
+            hos_log("video: since the last line: %lld submissions decoded, %.1f ms each; a picture handed out every %.1f ms",
+                    (long long)d->decodes, d->decodes ? (double)d->decode_ns / d->decodes / 1e6 : 0.0,
+                    d->acquire_gaps ? (double)d->acquire_gap_ns / d->acquire_gaps / 1e6 : 0.0);
+            d->decode_ns = d->decodes = d->acquire_gap_ns = d->acquire_gaps = 0;
         }
     }
     if (video_log() && (d->acquires <= 8 || p->last || d->acquires % 300 == 0)) {

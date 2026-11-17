@@ -137,7 +137,7 @@ def main():
     print("game: %s (%s)" % (cfg.ID, cfg.LIFT_PATCHES or "no lift patches"))
     hle = ()
     if a.standalone:
-        hle, stubbed = standalone.hle_set(nso.load_exefs(a.exefs))
+        hle, stubbed = standalone.hle_set(nso.load_exefs(a.exefs), game=cfg)   # (raiders) the game's SDK_LIFTED
         print("standalone: %d HLE functions in host/, %d OS-facing imports stubbed" % (len(hle), len(stubbed)))
         hle = hle | stubbed
     img = eden_image.EdenImage(a.exefs, a.aslr, hle=hle) if a.layout == "eden" else nx_image.NxImage(a.exefs)

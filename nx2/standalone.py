@@ -94,9 +94,10 @@ def write_nvn_exports(gen, names):
         open(path, "w", newline="\n").write(text)
 
 
-def hle_set(modules):
+def hle_set(modules, game=None):
     """(HLE'd symbols, stubbed symbols): the runtime's imp_ functions some module has, the sdk's NVN functions, and
-    the OS-facing functions the game modules import that it does not define"""
+    the OS-facing functions the game modules import that it does not define. (raiders, T19) The game's SDK_LIFTED
+    (games/<id>/game.py) are not stubbed: the sdk defines them and its own code runs, lifted"""
     hle = {n[4:] for n in implemented()}
     known = {s["name"] for m in modules for s in m.symbols if s["name"]}
     # (TOTK's SDK functions that MKW's newer SDK no longer has: their HLE stays unused; a typo shows here too)
@@ -111,7 +112,25 @@ def hle_set(modules):
         if m.name not in ("sdk", "rtld"):   # (every game module: main and the subsdk* the exefs has)
             stubbed |= {s["name"] for s in m.symbols if not s["defined"] and s["name"] and os_facing(s["name"])
                         and kind.get(s["name"], "func") == "func"}
+    stubbed -= sdk_lifted(modules, game, hle)   # (raiders)
     return hle | set(nvn_exports(modules)), stubbed - hle
+
+
+def sdk_lifted(modules, game, hle=()):
+    """(raiders, T19) games/<id>/game.py SDK_LIFTED: OS-facing imports left to the sdk's own definition (lifted) instead
+    of a generated stub, for an sdk function that is a library, not a service call (nn::movie::Initialize: a reference
+    count and a TLS slot). Each must be a function the sdk defines and host/ does not replace; anything else stops the lift"""
+    names = tuple(getattr(game, "SDK_LIFTED", None) or ())
+    if not names:
+        return set()
+    sdk = next((m for m in modules if m.name == "sdk"), None)
+    funcs = {s["name"] for s in sdk.symbols if s["defined"] and s["name"] and s["type"] == "func"} if sdk else set()
+    for n in names:
+        if n not in funcs:
+            sys.exit("%s: SDK_LIFTED: %s is not a function the sdk defines" % (game.ID, n))
+        if n in hle:
+            sys.exit("%s: SDK_LIFTED: %s is replaced in host/ (HLE): drop one of the two" % (game.ID, n))
+    return set(names)
 
 
 def demangle(syms):
