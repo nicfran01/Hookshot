@@ -1,0 +1,11 @@
+# Splatoon Raiders on a Steam Deck: switches for hookshot_env.txt (copied beside the game by
+# nx2/make_game.py on SteamOS or with --profile deck, only when the folder has no hookshot_env.txt).
+# NAME=VALUE per line; comment lines start with #. Every setting cites the run that measured it.
+#
+# The game's defaults already fit the Deck's 12.5 GB (RSS + GPU): 7.37 GB at peak in the hub, 4.55 GB of headroom
+# (docs/plans/reports/T20-memory.md runs mem-base, mem-base2). No memory switch is needed: the texture budget, ASTC,
+# texture size and quality presets changed nothing measurable (mem-vram2048, mem-vram1536, mem-tex1024, mem-astc8,
+# mem-q1, mem-q2) and the one that saved memory was rejected (mem-cap0, mem-guest6g).
+#
+# Handheld mode, as the Deck is played; every T20 run, and mem-final, ran with it (docs/plans/reports/T20-memory.md).
+HOS_HANDHELD=1

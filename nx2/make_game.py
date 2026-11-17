@@ -4,6 +4,8 @@
     python -I nx2/make_game.py --romfs <dir> --exefs <dir> --out <folder> [--work <folder>] [--jobs <n>]
     python -I nx2/make_game.py --check --nup <file.nup>       (or --exefs <dir>: is this the right game and version?)
     python -I nx2/make_game.py --update <folder>             (a folder built before, again with these tools: the game files it keeps)
+    ... --profile deck|desktop    (raiders) the Steam Deck's switches as the folder's hookshot_env.txt (deck; the default on
+                                  SteamOS), or never (desktop); a hookshot_env.txt already there is kept
     python -I nx2/make_game.py --game <.nup or folder> --prepare   (RecompLauncher: --out defaults to ~/Games/Hookshot; no window,
                                                                     "progress <0..1> <text>" lines and an "error <text>" line on stdout,
                                                                     exit 0 when the game is built; with --check, its "check ok|bad" line)
@@ -1031,6 +1033,35 @@ def ship_state_list(out):
     print("the shipped pipeline state list: %d pipelines" % n, flush=True)
 
 
+def on_steamos(os_release="/etc/os-release"):
+    """(raiders, T20) /etc/os-release says ID=steamos (a Steam Deck's own system)"""
+    try:
+        with open(os_release, encoding="utf-8", errors="replace") as f:
+            return any(l.strip() in ("ID=steamos", 'ID="steamos"', "ID='steamos'") for l in f)
+    except OSError:
+        return False
+
+
+def deck_profile(out, game_id, profile=None, os_release="/etc/os-release"):
+    """(raiders, T20) A Steam Deck's switches, games/<id>/deck_env.txt, as the game folder's hookshot_env.txt: with
+    --profile deck, or on SteamOS unless --profile desktop says otherwise (the argument first). Never over a
+    hookshot_env.txt the folder already has (the player's own, or one from an earlier build), and nothing for a game
+    without the file. Returns what was done, as said"""
+    src = os.path.join(_game.GAMES, game_id, "deck_env.txt")
+    dst = os.path.join(out, "hookshot_env.txt")
+    if profile == "desktop" or (profile is None and not on_steamos(os_release)):
+        return None
+    if not os.path.isfile(src):
+        return None
+    if os.path.lexists(dst):
+        said = "the Steam Deck profile was not written: the folder has its own hookshot_env.txt"
+    else:
+        copy_writable(src, dst)
+        said = "the Steam Deck profile (%s): hookshot_env.txt" % ("--profile deck" if profile == "deck" else "SteamOS")
+    print(said, flush=True)
+    return said
+
+
 # (the builders read this line's start: the step was skipped or failed, and the shaders' row says so instead of a check mark)
 NOT_PREPARED = "the shaders were not prepared now"
 # (a run that prints nothing this long is stopped. Not its whole length: that is 25 minutes on some AMD GPUs, and the driver's own
@@ -1375,6 +1406,10 @@ def parse_args():
     # (AMD FSR 4, off unless asked: nothing is downloaded. gpu/vk/vk_fsr4.cpp)
     p.add_argument("--fsr", action="store_true", help="build with AMD FSR 4 (AMD's DLLs are not included: see the readme)")
     p.add_argument("--no-fsr", action="store_true", help="with --update: build without AMD FSR 4 even if the folder had it")
+    # (raiders, T20) the Steam Deck's switches as hookshot_env.txt: on SteamOS by itself, or as this says
+    p.add_argument("--profile", choices=("deck", "desktop"),
+                   help="deck: write games/<id>/deck_env.txt as the folder's hookshot_env.txt when it has none (the default on "
+                        "SteamOS); desktop: never")
     a = p.parse_args()
     if a.prepare:   # (first: a bad --game below is said as RecompLauncher's "error" line)
         global PREPARE
@@ -1729,6 +1764,7 @@ def main(a=None):
     with open(language, "w", encoding="utf-8", newline="\n") as f:
         f.write("# The game's language. Change the line below to one of the codes listed here, save, and start the game again.\n\n%s\n\n" % a.language)
         f.writelines("# %-8s %s\n" % l for l in select_game(exefs).LANGUAGES)   # (raiders) the game's own list
+    deck_profile(out, select_game(exefs).ID, getattr(a, "profile", None))   # (raiders, T20)
     # (what the game's update offer reads, host/hos_update.c: which release these tools are, and where the builder that made the folder is)
     tag = ""
     for version_name in ("version.txt", "VERSION"):   # (VERSION: the AppImage, which has no version.txt)
